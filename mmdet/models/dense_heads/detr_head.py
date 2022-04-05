@@ -55,6 +55,7 @@ class DETRHead(AnchorFreeHead):
                  num_query=100,
                  num_reg_fcs=2,
                  transformer=None,
+                 freeze_transformer=False,
                  sync_cls_avg_factor=False,
                  positional_encoding=dict(
                      type='SinePositionalEncoding',
@@ -130,6 +131,7 @@ class DETRHead(AnchorFreeHead):
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
         self.loss_iou = build_loss(loss_iou)
+        self.freeze_transformer = freeze_transformer
 
         if self.loss_cls.use_sigmoid:
             self.cls_out_channels = num_classes
@@ -220,8 +222,20 @@ class DETRHead(AnchorFreeHead):
                     [nb_dec, bs, num_query, 4].
         """
         num_levels = len(feats)
+        assert num_levels == 1
         img_metas_list = [img_metas for _ in range(num_levels)]
-        return multi_apply(self.forward_single, feats, img_metas_list)
+        #outs = multi_apply(self.forward_single, feats, img_metas_list)
+        if self.freeze_transformer:
+            with torch.no_grad():
+                outs_dec = self.forward_single(feats[0], img_metas_list[0])
+        else:
+            outs_dec = self.forward_single(feats[0], img_metas_list[0])
+
+        cls_scores = self.fc_cls(outs_dec)
+        bbox_preds = self.fc_reg(self.activate(
+            self.reg_ffn(outs_dec))).sigmoid()
+        
+        return (cls_scores, ), (bbox_preds, )
 
     def forward_single(self, x, img_metas):
         """"Forward function for a single feature level.
@@ -258,11 +272,11 @@ class DETRHead(AnchorFreeHead):
         # outs_dec: [nb_dec, bs, num_query, embed_dim]
         outs_dec, _ = self.transformer(x, masks, self.query_embedding.weight,
                                        pos_embed)
-
-        all_cls_scores = self.fc_cls(outs_dec)
-        all_bbox_preds = self.fc_reg(self.activate(
-            self.reg_ffn(outs_dec))).sigmoid()
-        return all_cls_scores, all_bbox_preds
+        return outs_dec
+        # all_cls_scores = self.fc_cls(outs_dec)
+        # all_bbox_preds = self.fc_reg(self.activate(
+            # self.reg_ffn(outs_dec))).sigmoid()
+        # return all_cls_scores, all_bbox_preds
 
     @force_fp32(apply_to=('all_cls_scores_list', 'all_bbox_preds_list'))
     def loss(self,

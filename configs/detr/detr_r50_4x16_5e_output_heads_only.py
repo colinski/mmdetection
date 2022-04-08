@@ -2,8 +2,9 @@ _base_ = [
     '../_base_/datasets/coco_detection.py', '../_base_/default_runtime.py'
 ]
 
-#checkpoint = '/home/csamplawski/checkpoints/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
-checkpoint = '/home/csamplawski/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
+#import os
+#$checkpoint = '%s/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'  % os.environ['WORK']
+checkpoint = '/work/csamplawski_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
 
 model = dict(
     type='DETR',

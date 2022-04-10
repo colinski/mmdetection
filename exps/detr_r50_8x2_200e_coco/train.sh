@@ -2,7 +2,7 @@
 START=$PWD
 cd $WORK
 
-singularity run --nv sif/python.sif bash \
+singularity run --nv -H $WORK sif/python.sif bash \
     src/mmdetection/tools/dist_train.sh \
     src/mmdetection/configs/detr/detr_r50_8x2_200e_coco.py \
     8 \

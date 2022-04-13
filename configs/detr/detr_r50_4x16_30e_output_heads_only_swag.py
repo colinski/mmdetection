@@ -4,7 +4,8 @@ _base_ = [
 
 #import os
 #$checkpoint = '%s/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'  % os.environ['WORK']
-checkpoint = '/work/mvadera_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
+#checkpoint = '/work/mvadera_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
+checkpoint = '/work/mvadera_umass_edu/checkpoints/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
 
 model = dict(
     type='DETR',
@@ -147,13 +148,13 @@ data = dict(
     test=dict(pipeline=test_pipeline))
 # optimizer
 optimizer = dict(
-    type='AdamW',
-    lr=0.0001,
+    type='SGD',
+    lr=0.01,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 # learning policy
-lr_config = dict(policy='step', step=[10])
-runner = dict(type='EpochBasedRunner', max_epochs=15)
+lr_config = dict(policy='fixed')
+runner = dict(type='EpochBasedRunner', max_epochs=30)
 find_unused_parameters=True

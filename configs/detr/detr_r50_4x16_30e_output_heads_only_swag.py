@@ -149,8 +149,9 @@ data = dict(
 # optimizer
 optimizer = dict(
     type='SGD',
-    lr=0.01,
+    lr=0.05,
     weight_decay=0.0001,
+    momentum=0.9,
     paramwise_cfg=dict(
         custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))

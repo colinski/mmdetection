@@ -56,6 +56,8 @@ class DETRHead(AnchorFreeHead):
                  num_reg_fcs=2,
                  transformer=None,
                  freeze_transformer=False,
+                 mc_dropout=False,
+                 mc_dropout_rate=0.5,
                  sync_cls_avg_factor=False,
                  positional_encoding=dict(
                      type='SinePositionalEncoding',
@@ -229,7 +231,12 @@ class DETRHead(AnchorFreeHead):
             with torch.no_grad():
                 outs_dec = self.forward_single(feats[0], img_metas_list[0])
         else:
-            outs_dec = self.forward_single(feats[0], img_metas_list[0])
+            outs_dec = self.forward_single(feats[0], img_metas_list[0]) 
+
+        #TODO: Add dropout here. Input shape: (6, B, 100, 256)
+
+        if self.mc_dropout:
+            outs_dec = F.dropout(out, p=self.mc_dropout_rate)
 
         cls_scores = self.fc_cls(outs_dec)
         bbox_preds = self.fc_reg(self.activate(

@@ -23,9 +23,9 @@ model = dict(
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
     bbox_head=dict(
         type='DETRHead',
-        freeze_proj=True,
         num_classes=80,
         in_channels=2048,
+        freeze_proj=True,
         transformer=dict(
             type='Transformer',
             freeze_encoder=True,
@@ -151,7 +151,7 @@ data = dict(
 # optimizer
 optimizer = dict(
     type='SGD',
-    lr=0.05,
+    lr=0.01,
     weight_decay=0.0001,
     momentum=0.9,
     paramwise_cfg=dict(

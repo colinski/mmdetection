@@ -558,10 +558,14 @@ class Transformer(BaseModule):
             Defaults to None.
     """
 
-    def __init__(self, encoder=None, decoder=None, init_cfg=None):
+    def __init__(self, encoder=None, decoder=None, 
+            freeze_encoder=False, freeze_decoder=False,
+            init_cfg=None):
         super(Transformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)
+        self.freeze_encoder = freeze_encoder
+        self.freeze_decoder = freeze_decoder
         self.embed_dims = self.encoder.embed_dims
 
     def init_weights(self):
@@ -594,30 +598,62 @@ class Transformer(BaseModule):
                 - memory: Output results from encoder, with shape \
                       [bs, embed_dims, h, w].
         """
-        bs, c, h, w = x.shape
-        # use `view` instead of `flatten` for dynamically exporting to ONNX
-        x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
-        pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
-        query_embed = query_embed.unsqueeze(1).repeat(
-            1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
-        mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
-        memory = self.encoder(
-            query=x,
-            key=None,
-            value=None,
-            query_pos=pos_embed,
-            query_key_padding_mask=mask)
-        target = torch.zeros_like(query_embed)
-        # out_dec: [num_layers, num_query, bs, dim]
-        out_dec = self.decoder(
-            query=target,
-            key=memory,
-            value=memory,
-            key_pos=pos_embed,
-            query_pos=query_embed,
-            key_padding_mask=mask)
-        out_dec = out_dec.transpose(1, 2)
-        memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
+
+        if self.freeze_encoder:
+            with torch.no_grad():
+                bs, c, h, w = x.shape
+                # use `view` instead of `flatten` for dynamically exporting to ONNX
+                x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
+                pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
+                query_embed = query_embed.unsqueeze(1).repeat(
+                    1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
+                mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
+                memory = self.encoder(
+                    query=x,
+                    key=None,
+                    value=None,
+                    query_pos=pos_embed,
+                    query_key_padding_mask=mask)
+        else:
+            bs, c, h, w = x.shape
+            # use `view` instead of `flatten` for dynamically exporting to ONNX
+            x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
+            pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
+            query_embed = query_embed.unsqueeze(1).repeat(
+                1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
+            mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
+            memory = self.encoder(
+                query=x,
+                key=None,
+                value=None,
+                query_pos=pos_embed,
+                query_key_padding_mask=mask)
+
+        if self.freeze_decoder:
+            with torch.no_grad():
+                target = torch.zeros_like(query_embed)
+                # out_dec: [num_layers, num_query, bs, dim]
+                out_dec = self.decoder(
+                    query=target,
+                    key=memory,
+                    value=memory,
+                    key_pos=pos_embed,
+                    query_pos=query_embed,
+                    key_padding_mask=mask)
+                out_dec = out_dec.transpose(1, 2)
+                memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
+        else:
+            target = torch.zeros_like(query_embed)
+            # out_dec: [num_layers, num_query, bs, dim]
+            out_dec = self.decoder(
+                query=target,
+                key=memory,
+                value=memory,
+                key_pos=pos_embed,
+                query_pos=query_embed,
+                key_padding_mask=mask)
+            out_dec = out_dec.transpose(1, 2)
+            memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
         return out_dec, memory
 
 

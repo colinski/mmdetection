@@ -55,7 +55,8 @@ class DETRHead(AnchorFreeHead):
                  num_query=100,
                  num_reg_fcs=2,
                  transformer=None,
-                 freeze_transformer=False,
+                 #freeze_transformer=False,
+                 freeze_proj=False,
                  mc_dropout=False,
                  mc_dropout_rate=0.5,
                  sync_cls_avg_factor=False,
@@ -133,7 +134,10 @@ class DETRHead(AnchorFreeHead):
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
         self.loss_iou = build_loss(loss_iou)
-        self.freeze_transformer = freeze_transformer
+        #self.freeze_transformer = freeze_transformer
+        self.freeze_proj = freeze_proj
+        self.mc_dropout = mc_dropout
+        self.mc_dropout_rate = mc_dropout_rate
 
         if self.loss_cls.use_sigmoid:
             self.cls_out_channels = num_classes
@@ -227,11 +231,11 @@ class DETRHead(AnchorFreeHead):
         assert num_levels == 1
         img_metas_list = [img_metas for _ in range(num_levels)]
         #outs = multi_apply(self.forward_single, feats, img_metas_list)
-        if self.freeze_transformer:
-            with torch.no_grad():
-                outs_dec = self.forward_single(feats[0], img_metas_list[0])
-        else:
-            outs_dec = self.forward_single(feats[0], img_metas_list[0]) 
+        # if self.freeze_transformer:
+            # with torch.no_grad():
+                # outs_dec = self.forward_single(feats[0], img_metas_list[0])
+        # else:
+        outs_dec = self.forward_single(feats[0], img_metas_list[0]) 
 
         #TODO: Add dropout here. Input shape: (6, B, 100, 256)
 
@@ -263,19 +267,38 @@ class DETRHead(AnchorFreeHead):
         # construct binary masks which used for the transformer.
         # NOTE following the official DETR repo, non-zero values representing
         # ignored positions, while zero values means valid positions.
-        batch_size = x.size(0)
-        input_img_h, input_img_w = img_metas[0]['batch_input_shape']
-        masks = x.new_ones((batch_size, input_img_h, input_img_w))
-        for img_id in range(batch_size):
-            img_h, img_w, _ = img_metas[img_id]['img_shape']
-            masks[img_id, :img_h, :img_w] = 0
 
-        x = self.input_proj(x)
-        # interpolate masks to have the same spatial shape with x
-        masks = F.interpolate(
-            masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-        # position encoding
-        pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
+        if self.freeze_proj:
+            with torch.no_grad():
+                batch_size = x.size(0)
+                input_img_h, input_img_w = img_metas[0]['batch_input_shape']
+                masks = x.new_ones((batch_size, input_img_h, input_img_w))
+                for img_id in range(batch_size):
+                    img_h, img_w, _ = img_metas[img_id]['img_shape']
+                    masks[img_id, :img_h, :img_w] = 0
+
+                x = self.input_proj(x)
+                # interpolate masks to have the same spatial shape with x
+                masks = F.interpolate(
+                    masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
+                # position encoding
+                pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
+
+        else:
+            batch_size = x.size(0)
+            input_img_h, input_img_w = img_metas[0]['batch_input_shape']
+            masks = x.new_ones((batch_size, input_img_h, input_img_w))
+            for img_id in range(batch_size):
+                img_h, img_w, _ = img_metas[img_id]['img_shape']
+                masks[img_id, :img_h, :img_w] = 0
+
+            x = self.input_proj(x)
+            # interpolate masks to have the same spatial shape with x
+            masks = F.interpolate(
+                masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
+            # position encoding
+            pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
+
         # outs_dec: [nb_dec, bs, num_query, embed_dim]
         outs_dec, _ = self.transformer(x, masks, self.query_embedding.weight,
                                        pos_embed)

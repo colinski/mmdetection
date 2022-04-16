@@ -3,8 +3,9 @@ _base_ = [
 ]
 
 #import os
-#$checkpoint = '%s/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'  % os.environ['WORK']
-checkpoint = '/work/mvadera_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
+#checkpoint = '%s/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'  % os.environ['WORK']
+#checkpoint = '/work/mvadera_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
+checkpoint = '/work/csamplawski_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_output_heads.pth'
 
 model = dict(
     type='DETR',
@@ -24,9 +25,12 @@ model = dict(
         type='DETRHead',
         num_classes=80,
         in_channels=2048,
-        freeze_transformer=True,
+        #freeze_transformer=True,
+        freeze_proj=True,
         transformer=dict(
             type='Transformer',
+            freeze_encoder=True,
+            freeze_decoder=True,
             encoder=dict(
                 type='DetrTransformerEncoder',
                 num_layers=6,

@@ -10,11 +10,11 @@ import os
 
 
 base_file_name = "/work/mvadera_umass_edu/logs/detr_r50_4x16_30e_output_heads_only_swag_seed_100"
-seeds = [i for i in range(1, 11)]
+epochs = [i for i in range(1, 30)]
 
 final_output = None
-for seed in seeds:
-    with open(os.path.join(base_file_name, 'output_epoch_{}.pkl'.format(seed)), 'rb') as f:
+for epoch in epochs:
+    with open(os.path.join(base_file_name, 'output_epoch_{}.pkl'.format(epoch)), 'rb') as f:
         results = pickle.load(f)
     if final_output is None:
         final_output = results

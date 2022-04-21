@@ -240,7 +240,7 @@ class DETRHead(AnchorFreeHead):
         #TODO: Add dropout here. Input shape: (6, B, 100, 256)
 
         if self.mc_dropout:
-            outs_dec = F.dropout(out, p=self.mc_dropout_rate)
+            outs_dec = F.dropout(outs_dec, p=self.mc_dropout_rate)
 
         cls_scores = self.fc_cls(outs_dec)
         bbox_preds = self.fc_reg(self.activate(

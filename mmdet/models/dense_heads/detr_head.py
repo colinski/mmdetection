@@ -247,6 +247,25 @@ class DETRHead(AnchorFreeHead):
             self.reg_ffn(outs_dec))).sigmoid()
         
         return (cls_scores, ), (bbox_preds, )
+    
+    def forward_transformer(self, x, query_embeds, img_metas):
+        batch_size = x.size(0)
+        input_img_h, input_img_w = img_metas[0]['batch_input_shape']
+        masks = x.new_ones((batch_size, input_img_h, input_img_w))
+        for img_id in range(batch_size):
+            img_h, img_w, _ = img_metas[img_id]['img_shape']
+            masks[img_id, :img_h, :img_w] = 0
+
+        x = self.input_proj(x)
+        # interpolate masks to have the same spatial shape with x
+        masks = F.interpolate(
+            masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
+        # position encoding
+        pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
+
+        # outs_dec: [nb_dec, bs, num_query, embed_dim]
+        outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed)
+        return outs_dec
 
     def forward_single(self, x, img_metas):
         """"Forward function for a single feature level.

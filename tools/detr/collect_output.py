@@ -3,7 +3,7 @@ import torch
 import mmdet
 from mmdet.apis import init_detector
 from mmdet.datasets import build_dataset, build_dataloader
-from tqdm import tqdm #progress bar
+from tqdm import tqdm, trange#progress bar
 import pickle
 import sys
 
@@ -13,14 +13,17 @@ checkpoint = sys.argv[2]
 pkl_fname = sys.argv[3]
 model = init_detector(config, checkpoint).cuda().eval()
 dataset = build_dataset(model.cfg.data.val)
-dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
+# dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
 
 output = []
-for sample in tqdm(dataloader):
-    img = sample['img'][0].data.cuda()
-    img_metas = sample['img_metas'][0].data[0]
+
+for idx in trange(len(dataset)):
+    sample = dataset[idx]
+    gt = dataset.get_ann_info(idx)
+    img = sample['img'][0].cuda().unsqueeze(0)
+    img_metas = [sample['img_metas'][0].data]
     img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-    
+
     with torch.no_grad():
         #run backbone and transformer
         feats = model.extract_feats([img])[0] #cnn
@@ -42,6 +45,9 @@ for sample in tqdm(dataloader):
     result['query_embeds'] = query_embeds.cpu().numpy()
     result['bbox_preds'] = bbox_preds.cpu().numpy()
     result['cls_probs'] = cls_probs.cpu().numpy()
+
+    result['gt_bboxes'] = gt['bboxes']
+    result['gt_labels'] = gt['labels']
     output.append(result)
     
 #save to pickle file

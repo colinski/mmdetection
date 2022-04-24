@@ -26,7 +26,7 @@ for sample in tqdm(output):
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
     bboxes = sample['bbox_preds'][-1] #100 x 4
     probs = sample['cls_probs'][-1] #100 x 81
-    mask = (np.sum(probs, axis=-1) <= 0.5)
+    mask = (np.sum(probs, axis=-1) >= 0.5)
 
     if np.sum(mask) == 0:
         continue

@@ -44,7 +44,7 @@ num_models = args.num_models
 # softmaxLayer = torch.nn.Softmax(dim = 1)
 
 #used to take in collection of individual ensemble results and convert into merged ensemble results
-merger = SamplingDetector(iou = args.iou, min_dets = 1)
+merger = SamplingDetector(iou = args.iou)
 
 allOutputs = [None for i in range(num_models)]
 #load results from each individual model

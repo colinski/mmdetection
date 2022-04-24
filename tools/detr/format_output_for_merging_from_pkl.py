@@ -30,9 +30,9 @@ for sample in tqdm(output):
     probs = sample['cls_probs'][-1] #100 x 81
     # mask = (np.argmax(probs, axis=-1) != 80) # Another mask to try. Filter out explicit backgrounds.
     probs = probs[:, :-1]
-    mask = (np.sum(probs, axis=-1) <= 0.5)
+    non_bg_mask = (np.sum(probs, axis=-1) >= 0.5)
 
-    if np.sum(mask) == 0:
+    if np.sum(non_bg_mask) == 0:
         results[fname] = []
         continue
 
@@ -49,7 +49,7 @@ for sample in tqdm(output):
 
     imDets = np.concatenate([probs, bboxes, scores], axis=1)
 
-    imDets = imDets[mask]
+    imDets = imDets[non_bg_mask]
 
     detections, idxes = np.unique(imDets, return_index = True, axis = 0)
 

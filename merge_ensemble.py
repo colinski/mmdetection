@@ -17,7 +17,7 @@ from mmdet.models import build_detector
 from tqdm import tqdm
 
 import numpy as np
-import tqdm
+# import tqdm
 import json
 import sys
 
@@ -44,7 +44,7 @@ num_models = args.num_models
 # softmaxLayer = torch.nn.Softmax(dim = 1)
 
 #used to take in collection of individual ensemble results and convert into merged ensemble results
-merger = SamplingDetector(iou = args.iou)
+merger = SamplingDetector(iou = args.iou, min_dets = 1)
 
 allOutputs = [None for i in range(num_models)]
 #load results from each individual model

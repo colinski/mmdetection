@@ -14,45 +14,34 @@ label_map = [
 ]
 
 
-pkl_fname = sys.argv[1]
-json_fname = sys.argv[2]
+json_fname = sys.argv[1]
 
-with open(pkl_fname, 'rb') as f:
-    output = pickle.load(f)
+with open(json_fname, 'r') as f:
+    output = json.load(f)
 
 results = []
-for sample in tqdm(output):
-    fname = sample['ori_filename']
+for imIdx, imKey in enumerate(output.keys()):
+    fname = imKey
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
-    bboxes = sample['bbox_preds'][-1] #100 x 4
-    probs = sample['cls_probs'][-1] #100 x 81
-    mask = (np.sum(probs, axis=-1) <= 0.5)
 
-    if np.sum(mask) == 0:
+    if len(output[imKey])==0:
         continue
 
-    bboxes = bboxes[mask]
-    probs = probs[mask]
-
-    probs = probs[:, :-1]
+    imDets = np.array(output[imKey])
+    bboxes = imDets[:, -5:-1] 
+    probs = imDets[:, :-5]
     cls_preds = np.argmax(probs, axis=-1)#[:, np.newaxis] #100, 1
     scores = np.amax(probs, axis=-1)#[:, np.newaxis] #100, 1
-
-    mask2 = (scores > 0.2)
-
-    if np.sum(mask2) == 0:
-        continue
+    #     import pdb
+    #     pdb.set_trace()
     
-    bboxes = bboxes[mask2]
-    scores= scores[mask2]
+    # x, y, w, h = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3] #detr outputs center_x, center_y, w, h format
+    # x1, y1, x2, y2 = x-0.5*w, y-0.5*h, x+0.5*w, y+0.5*h #convert to xyxy format
+    # bboxes = np.stack([x1, y1, x2, y2], axis=-1) #xyxy format
     
-    x, y, w, h = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3] #detr outputs center_x, center_y, w, h format
-    x1, y1, x2, y2 = x-0.5*w, y-0.5*h, x+0.5*w, y+0.5*h #convert to xyxy format
-    bboxes = np.stack([x1, y1, x2, y2], axis=-1) #xyxy format
-    
-    H, W, _ = sample['ori_shape']
-    scale = np.array([W, H, W, H], dtype=np.float32)
-    bboxes *= scale
+    # H, W, _ = sample['ori_shape']
+    # scale = np.array([W, H, W, H], dtype=np.float32)
+    # bboxes *= scale
 
     for box, score, cls_idx in zip(bboxes, scores, cls_preds):
         box = [float(b) for b in box]
@@ -64,11 +53,11 @@ for sample in tqdm(output):
             'score': float(score)
         })
 
-with open(json_fname, 'w') as f:
+with open(json_fname.split('.')[0] + '_coco_format.json', 'w') as f:
     f.write(json.dumps(results, indent=4))
 
 cocoGt = COCO('data/coco/annotations/instances_val2017.json')
-cocoDt = cocoGt.loadRes(json_fname)
+cocoDt = cocoGt.loadRes(json_fname.split('.')[0] + '_coco_format.json')
 imgIds = sorted(cocoGt.getImgIds())
 cocoEval = COCOeval(cocoGt, cocoDt, 'bbox')
 cocoEval.params.imgIds = imgIds

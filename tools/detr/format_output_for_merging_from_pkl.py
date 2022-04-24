@@ -28,7 +28,14 @@ for sample in tqdm(output):
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
     bboxes = sample['bbox_preds'][-1] #100 x 4
     probs = sample['cls_probs'][-1] #100 x 81
+    # mask = (np.argmax(probs, axis=-1) != 80) # Another mask to try. Filter out explicit backgrounds.
     probs = probs[:, :-1]
+    mask = (np.sum(probs, axis=-1) <= 0.5)
+
+    if np.sum(mask) == 0:
+        results[fname] = []
+        continue
+
     cls_preds = np.argmax(probs, axis=-1)#[:, np.newaxis] #100, 1
     scores = np.amax(probs, axis=-1).reshape(-1, 1)#[:, np.newaxis] #100, 1
     
@@ -41,11 +48,22 @@ for sample in tqdm(output):
     bboxes *= scale
 
     imDets = np.concatenate([probs, bboxes, scores], axis=1)
+
+    imDets = imDets[mask]
+
     detections, idxes = np.unique(imDets, return_index = True, axis = 0)
 
-    #TODO: Add score based threshold filtering for final detections. 
+    
 
-    results[fname] = detections.tolist()
+    # TODO: Add score based threshold filtering for final detections.  
+
+    mask2 = (detections[:, -1] > 0.2)
+
+    if np.sum(mask2) == 0:
+        results[fname] = []
+        continue
+
+    results[fname] = detections[mask2].tolist()
 
 
     # for box, score, cls_idx in zip(bboxes, scores, cls_preds):

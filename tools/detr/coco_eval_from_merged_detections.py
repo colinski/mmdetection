@@ -30,11 +30,28 @@ for imIdx, imKey in enumerate(output.keys()):
     imDets = np.array(output[imKey])
     bboxes = imDets[:, -5:-1] 
     probs = imDets[:, :-5]
+
+    # Probably don't need the below one. 
+    non_bg_mask = (np.sum(probs[:, :-1], axis=-1) >= 0.5)
+    if np.sum(non_bg_mask) == 0:
+        continue
+
+    bboxes = bboxes[non_bg_mask]
+    probs = probs[non_bg_mask]
     cls_preds = np.argmax(probs, axis=-1)#[:, np.newaxis] #100, 1
     scores = np.amax(probs, axis=-1)#[:, np.newaxis] #100, 1
     #     import pdb
     #     pdb.set_trace()
+
+    mask2 = (scores > 0.2)
+
+    if np.sum(mask2) == 0:
+        continue
     
+    bboxes = bboxes[mask2]
+    scores= scores[mask2]
+    cls_preds = cls_preds[mask2]
+
     # x, y, w, h = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3] #detr outputs center_x, center_y, w, h format
     # x1, y1, x2, y2 = x-0.5*w, y-0.5*h, x+0.5*w, y+0.5*h #convert to xyxy format
     # bboxes = np.stack([x1, y1, x2, y2], axis=-1) #xyxy format

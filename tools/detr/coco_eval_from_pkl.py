@@ -5,6 +5,7 @@ import json
 import sys
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+
 label_map = [ 
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 
     21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 
@@ -26,13 +27,13 @@ for sample in tqdm(output):
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
     bboxes = sample['bbox_preds'][-1] #100 x 4
     probs = sample['cls_probs'][-1] #100 x 81
-    mask = (np.sum(probs, axis=-1) >= 0.5)
+    non_bg_mask = (np.argmax(probs, axis=-1)!= (probs.shape[1] - 1))
 
-    if np.sum(mask) == 0:
+    if np.sum(non_bg_mask) == 0:
         continue
 
-    bboxes = bboxes[mask]
-    probs = probs[mask]
+    bboxes = bboxes[non_bg_mask]
+    probs = probs[non_bg_mask]
 
     probs = probs[:, :-1]
     cls_preds = np.argmax(probs, axis=-1)#[:, np.newaxis] #100, 1
@@ -45,6 +46,7 @@ for sample in tqdm(output):
     
     bboxes = bboxes[mask2]
     scores= scores[mask2]
+    cls_preds = cls_preds[mask2]
     
     x, y, w, h = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3] #detr outputs center_x, center_y, w, h format
     x1, y1, x2, y2 = x-0.5*w, y-0.5*h, x+0.5*w, y+0.5*h #convert to xyxy format

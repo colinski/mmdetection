@@ -23,6 +23,7 @@ for idx in trange(len(dataset)):
     img = sample['img'][0].cuda().unsqueeze(0)
     img_metas = [sample['img_metas'][0].data]
     img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+    result = {k: v for k, v in img_metas[0].items()}
 
     with torch.no_grad():
         #run backbone and transformer
@@ -39,9 +40,17 @@ for idx in trange(len(dataset)):
         bbox_preds = model.bbox_head.activate(bbox_preds) #relu
         bbox_preds = model.bbox_head.fc_reg(bbox_preds) #linear
         bbox_preds = torch.sigmoid(bbox_preds) #6 x 100 x 4
+
+        if model.bbox_head.loss_count is not None:
+            count_preds = model.bbox_head.count_ffn(query_embeds) #linear
+            count_preds = model.bbox_head.activate(count_preds) #relu
+            count_preds = model.bbox_head.fc_count(count_preds) #linear
+            count_preds = count_preds.mean(dim=1)
+            count_rates = model.bbox_head.softplus(count_preds)
+            result['count_rates'] = count_rates.cpu().numpy()
+
     
     #collect output
-    result = {k: v for k, v in img_metas[0].items()}
     result['query_embeds'] = query_embeds.cpu().numpy()
     result['bbox_preds'] = bbox_preds.cpu().numpy()
     result['cls_probs'] = cls_probs.cpu().numpy()

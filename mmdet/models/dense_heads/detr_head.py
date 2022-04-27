@@ -13,6 +13,10 @@ from mmdet.models.utils import build_transformer
 from ..builder import HEADS, build_loss
 from .anchor_free_head import AnchorFreeHead
 
+from torch.distributions import Poisson
+
+
+
 
 @HEADS.register_module()
 class DETRHead(AnchorFreeHead):
@@ -72,6 +76,7 @@ class DETRHead(AnchorFreeHead):
                      class_weight=1.0),
                  loss_bbox=dict(type='L1Loss', loss_weight=5.0),
                  loss_iou=dict(type='GIoULoss', loss_weight=2.0),
+                 loss_count=None,
                  train_cfg=dict(
                      assigner=dict(
                          type='HungarianAssigner',
@@ -86,6 +91,7 @@ class DETRHead(AnchorFreeHead):
         # since it brings inconvenience when the initialization of
         # `AnchorFreeHead` is called.
         super(AnchorFreeHead, self).__init__(init_cfg)
+        self.loss_count = loss_count
         self.bg_cls_weight = 0
         self.sync_cls_avg_factor = sync_cls_avg_factor
         class_weight = loss_cls.get('class_weight', None)
@@ -172,6 +178,18 @@ class DETRHead(AnchorFreeHead):
         self.fc_reg = Linear(self.embed_dims, 4)
         self.query_embedding = nn.Embedding(self.num_query, self.embed_dims)
 
+        if self.loss_count is not None:
+            self.count_ffn = FFN(
+                self.embed_dims,
+                self.embed_dims,
+                self.num_reg_fcs,
+                self.act_cfg,
+                dropout=0.0,
+                add_residual=False
+            )
+            self.fc_count = Linear(self.embed_dims, 80)
+            self.softplus = nn.Softplus()
+
     def init_weights(self):
         """Initialize weights of the transformer head."""
         # The initialization for transformer is important
@@ -246,6 +264,12 @@ class DETRHead(AnchorFreeHead):
         bbox_preds = self.fc_reg(self.activate(
             self.reg_ffn(outs_dec))).sigmoid()
         
+        if self.loss_count is not None:
+            count_preds = self.fc_count(self.activate(self.count_ffn(outs_dec))) #bs x Ndec x Nq x 80*2
+            count_preds = count_preds.mean(dim=2) #b x Ndec x 80*2
+            self.count_rates = self.softplus(count_preds) #stash here for now
+            #count_dists = Poisson(count_rate)
+
         return (cls_scores, ), (bbox_preds, )
     
     def forward_transformer(self, x, query_embeds, img_metas):
@@ -262,10 +286,37 @@ class DETRHead(AnchorFreeHead):
             masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
         # position encoding
         pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
+        mask = masks
+
+        bs, c, h, w = x.shape
+        # use `view` instead of `flatten` for dynamically exporting to ONNX
+        x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
+        pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
+        query_embed = query_embeds.unsqueeze(1).repeat(1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
+        mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
+        memory = self.transformer.encoder(
+            query=x,
+            key=None,
+            value=None,
+            query_pos=pos_embed,
+            query_key_padding_mask=mask
+        )
+
+        target = torch.zeros_like(query_embed)
+        # out_dec: [num_layers, num_query, bs, dim]
+        out_dec = self.transformer.decoder(
+            query=target,
+            key=memory,
+            value=memory,
+            key_pos=pos_embed,
+            query_pos=query_embed,
+            key_padding_mask=mask)
+        out_dec = out_dec.transpose(1, 2)
+        # memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
 
         # outs_dec: [nb_dec, bs, num_query, embed_dim]
-        outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed)
-        return outs_dec
+        #outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed)
+        return out_dec
 
     def forward_single(self, x, img_metas):
         """"Forward function for a single feature level.
@@ -383,6 +434,19 @@ class DETRHead(AnchorFreeHead):
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_bbox'] = losses_bbox[-1]
         loss_dict['loss_iou'] = losses_iou[-1]
+
+        if self.loss_count is not None:
+            count_dists = Poisson(self.count_rates)
+            gt_counts = [torch.bincount(labels, minlength=80).unsqueeze(0) for labels in gt_labels_list]
+            gt_counts = torch.cat(gt_counts, dim=0).unsqueeze(0) #because 6 layers
+            log_probs = count_dists.log_prob(gt_counts) #Ndec x bs x 80
+            nll = (-log_probs).mean(dim=-1)
+            nll = nll.mean(dim=-1)
+            loss_dict['loss_count'] = nll[-1]
+            for i in range(len(nll) - 1):
+                loss_dict[f'd{i}.loss_count'] = nll[i]
+
+                
         # loss from other decoder layers
         num_dec_layer = 0
         for loss_cls_i, loss_bbox_i, loss_iou_i in zip(losses_cls[:-1],

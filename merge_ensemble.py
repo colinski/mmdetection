@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument('--saveNm', default = None, help='name to save results as')
     parser.add_argument('--iou', default = 0.8, type = float, help='bbox iou to merge ensemble detections')
     parser.add_argument('--num_models', default=None, type=int, help='num of models in ensemble')
+    parser.add_argument('--maximal', action='store_true', help='generate a maximal bounding box')
     args = parser.parse_args()
     return args
 
@@ -41,10 +42,8 @@ args = parse_args()
 
 num_models = args.num_models
 
-# softmaxLayer = torch.nn.Softmax(dim = 1)
-
 #used to take in collection of individual ensemble results and convert into merged ensemble results
-merger = SamplingDetector(iou = args.iou)
+merger = SamplingDetector(iou = args.iou, min_dets=3)
 
 allOutputs = [None for i in range(num_models)]
 #load results from each individual model
@@ -78,7 +77,7 @@ for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
         continue
   
     #cluster and merge ensemble detections into final detections (don't pass in final column with softmax score)
-    final_detections = merger.form_final(ensemble_detections[:, :-1])
+    final_detections = merger.form_final(ensemble_detections[:, :-1], maximal=args.maximal)
 
     if len(final_detections) == 0: #no valid detections were clustered
         continue

@@ -28,8 +28,9 @@ for sample in tqdm(output):
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
     bboxes = sample['bbox_preds'][-1] #100 x 4
     probs = sample['cls_probs'][-1] #100 x 81
-    # mask = (np.argmax(probs, axis=-1) != 80) # Another mask to try. Filter out explicit backgrounds.
+    # non_bg_mask = (np.argmax(probs, axis=-1)!= (probs.shape[1] - 1) ## Another background mask
     probs = probs[:, :-1]
+    
     non_bg_mask = (np.sum(probs, axis=-1) >= 0.5)
 
     if np.sum(non_bg_mask) == 0:

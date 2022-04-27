@@ -60,7 +60,7 @@ class SamplingDetector():
         self.min_dets = min_dets
         self.visualise = vis
 
-    def form_final(self, detections):
+    def form_final(self, detections, maximal=False):
         #detections are in format of [logits, bbox]
 
         #cluster detections from each forward pass 
@@ -75,7 +75,7 @@ class SamplingDetector():
         #form observations from cluster
         observations = self.form_observations(detections, det_set)
 
-        final_detections = self.form_final_detections(observations)
+        final_detections = self.form_final_detections(observations, maximal=maximal)
 
         return final_detections
 
@@ -206,11 +206,14 @@ class SamplingDetector():
 
         return observations
 
-    def form_final_detections(self, observations):
+    def form_final_detections(self, observations, maximal=False):
         detections = []
         for ob_individ in observations:
             distribution = np.mean(ob_individ[:, :-4], axis = 0)
-            bbox = np.mean(ob_individ[:, -4:], axis = 0) 
+            if maximal:
+                bbox = np.concatenate([np.min(ob_individ[:, -4:-2], axis=0), np.max(ob_individ[:, -2:], axis=0)])
+            else:
+                bbox = np.mean(ob_individ[:, -4:], axis = 0)
 
             detections += [distribution.tolist() + bbox.tolist()]
 

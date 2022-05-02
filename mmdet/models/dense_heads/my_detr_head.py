@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +19,7 @@ from mmcv.cnn.bricks.registry import DROPOUT_LAYERS, ACTIVATION_LAYERS, NORM_LAY
         FEEDFORWARD_NETWORK, POSITIONAL_ENCODING
 
 from mmcv import build_from_cfg
+from mmcv.cnn import build_norm_layer, xavier_init
 
 
 
@@ -171,6 +173,8 @@ class MyDETRHead(AnchorFreeHead):
         self.bbox_head = nn.Sequential(
             Linear(self.embed_dims, self.embed_dims),
             build_activation_layer(self.act_cfg),
+            Linear(self.embed_dims, self.embed_dims),
+            build_activation_layer(self.act_cfg),
             Linear(self.embed_dims, 4),
             nn.Sigmoid()
         )
@@ -185,6 +189,29 @@ class MyDETRHead(AnchorFreeHead):
         #self.transformer.init_weights()
         self.encoder.init_weights()
         self.decoder.init_weights()
+        # prior_prob = 0.01
+        # bias_value = -math.log((1 - prior_prob) / prior_prob)
+        # self.cls_head.bias.data = torch.ones(81) * bias_value
+        
+        nn.init.constant_(self.cls_head.bias, 0.0)
+        for m in self.bbox_head.modules():
+            if hasattr(m, 'weight') and m.weight.dim() > 1:
+                xavier_init(m, distribution='uniform')
+        
+        # nn.init.constant_(self.bbox_head[-2].weight.data, 0)
+        # nn.init.constant_(self.bbox_head[-2].bias.data, 0)
+       
+       # if self.loss_cls.use_sigmoid:
+            # bias_init = bias_init_with_prob(0.01)
+            # for m in self.cls_branches:
+                # nn.init.constant_(m.bias, bias_init)
+        # for m in self.reg_branches:
+            # constant_init(m[-1], 0, bias=0)
+        # nn.init.constant_(self.reg_branches[0][-1].bias.data[2:], -2.0)
+        # if self.as_two_stage:
+            # for m in self.reg_branches:
+                # nn.init.constant_(m[-1].bias.data[2:], 0.0)
+
 
     def forward(self, feats, img_metas):
         """Forward function.
@@ -209,14 +236,28 @@ class MyDETRHead(AnchorFreeHead):
         num_levels = len(feats)
         assert num_levels == 1
         feats = feats[0].permute(0, 2, 3, 1)
-        B = feats.shape[0]
+        B, H, W, D = feats.shape
+       
+        offset = 0
+        if B > 1:
+            input_H, input_W = img_metas[0]['batch_input_shape']
+            offset = feats.new_ones(B, 1, input_H, input_W)
+            for b in range(B):
+                orig_H, orig_W, _ = img_metas[b]['img_shape']
+                offset[b, 0, 0:orig_H, 0:orig_W] = 0
+            
+            offset = F.interpolate(offset, size=(H, W))
+            offset[offset != 0] = -torch.inf
+            offset = offset.flatten(2)
+            offset = offset.unsqueeze(-2)
+
         
         feats_pos = self.feats_pos_encoding(feats)
-        feats = self.encoder(feats, feats_pos)
+        feats = self.encoder(feats, feats_pos, offset=offset)
         embeds = self.query_embedding.weight.unsqueeze(0)
         embeds = embeds.expand(B, -1, -1)
 
-        embeds = self.decoder(embeds, feats, feats_pos)
+        embeds = self.decoder(embeds, feats, feats_pos, offset=offset)
         cls_scores = self.cls_head(embeds)
         bbox_preds = self.bbox_head(embeds)
         return (cls_scores, ), (bbox_preds, )

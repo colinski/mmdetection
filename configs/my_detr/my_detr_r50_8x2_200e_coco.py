@@ -6,6 +6,8 @@ custom_imports = dict(
         imports=['mmdet.models.dense_heads.my_detr_head', 'cad'],
         allow_failed_imports=False
 )
+
+checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
 model = dict(type='SingleStageDetector',
     backbone=dict(type='ResNet',
         depth=50,
@@ -15,7 +17,8 @@ model = dict(type='SingleStageDetector',
         norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
         style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')
+        #init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')
+        init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
     ),
     neck=dict(type='ChannelMapper', #from deformable detr
         in_channels=[2048],
@@ -30,12 +33,13 @@ model = dict(type='SingleStageDetector',
         in_channels=256,
         encoder_cfg=dict(type='DETREncoder',
             self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            ffn_cfg=dict(type='SLP', in_channels=256)
+            # ffn_cfg=dict(type='SLP', in_channels=256)
+            ffn_cfg=dict(type='SLP', in_channels=256, act_cfg=dict(type='ReLU', inplace=True)),
         ),
         decoder_cfg=dict(type='DETRDecoder',
             self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
             cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            ffn_cfg=dict(type='SLP', in_channels=256),
+            ffn_cfg=dict(type='SLP', in_channels=256, act_cfg=dict(type='ReLU', inplace=True)),
             shared_norm_cfg=dict(type='LN'),
             return_all_layers=True
         ),
@@ -134,7 +138,8 @@ optimizer = dict(
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
-optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+# optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+optimizer_config = dict(grad_clip=dict(max_norm=1, norm_type=2))
 # learning policy
 lr_config = dict(policy='step', step=[133])
 runner = dict(type='EpochBasedRunner', max_epochs=200)

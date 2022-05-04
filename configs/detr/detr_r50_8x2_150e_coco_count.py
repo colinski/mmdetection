@@ -1,7 +1,8 @@
 _base_ = [
     '../_base_/datasets/coco_detection.py', '../_base_/default_runtime.py'
 ]
-checkpoint = '/work/meet_and_colin_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_decoder_no_output_heads.pth'
+#checkpoint = '/work/meet_and_colin_umass_edu/checkpoints/detr_r50_8x2_150e_coco_no_decoder_no_output_heads.pth'
+checkpoint = 'checkpoints/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
 
 model = dict(
     type='DETR',
@@ -22,6 +23,7 @@ model = dict(
         num_classes=80,
         in_channels=2048,
         freeze_proj=True,
+        count_dist='normal',
         transformer=dict(
             type='Transformer',
             freeze_encoder=True,
@@ -59,7 +61,6 @@ model = dict(
             )),
         positional_encoding=dict(
             type='SinePositionalEncoding', num_feats=128, normalize=True),
-        loss_count='log_prob',
         loss_cls=dict(
             type='CrossEntropyLoss',
             bg_cls_weight=0.1,

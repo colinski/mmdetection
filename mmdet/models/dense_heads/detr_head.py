@@ -13,7 +13,7 @@ from mmdet.models.utils import build_transformer
 from ..builder import HEADS, build_loss
 from .anchor_free_head import AnchorFreeHead
 
-from torch.distributions import Poisson
+from torch.distributions import Poisson, Normal
 
 
 
@@ -76,7 +76,7 @@ class DETRHead(AnchorFreeHead):
                      class_weight=1.0),
                  loss_bbox=dict(type='L1Loss', loss_weight=5.0),
                  loss_iou=dict(type='GIoULoss', loss_weight=2.0),
-                 loss_count=None,
+                 count_dist=None,
                  train_cfg=dict(
                      assigner=dict(
                          type='HungarianAssigner',
@@ -91,7 +91,7 @@ class DETRHead(AnchorFreeHead):
         # since it brings inconvenience when the initialization of
         # `AnchorFreeHead` is called.
         super(AnchorFreeHead, self).__init__(init_cfg)
-        self.loss_count = loss_count
+        self.count_dist = count_dist
         self.bg_cls_weight = 0
         self.sync_cls_avg_factor = sync_cls_avg_factor
         class_weight = loss_cls.get('class_weight', None)
@@ -178,7 +178,7 @@ class DETRHead(AnchorFreeHead):
         self.fc_reg = Linear(self.embed_dims, 4)
         self.query_embedding = nn.Embedding(self.num_query, self.embed_dims)
 
-        if self.loss_count is not None:
+        if self.count_dist is not None:
             self.count_ffn = FFN(
                 self.embed_dims,
                 self.embed_dims,
@@ -187,7 +187,11 @@ class DETRHead(AnchorFreeHead):
                 dropout=0.0,
                 add_residual=False
             )
-            self.fc_count = Linear(self.embed_dims, 80)
+            if self.count_dist == 'normal':
+                self.fc_count = Linear(self.embed_dims, 80*2)
+            elif self.count_dist == 'poisson':
+                self.fc_count = Linear(self.embed_dims, 80)
+
             self.softplus = nn.Softplus()
 
     def init_weights(self):
@@ -264,12 +268,21 @@ class DETRHead(AnchorFreeHead):
         bbox_preds = self.fc_reg(self.activate(
             self.reg_ffn(outs_dec))).sigmoid()
         
-        if self.loss_count is not None:
-            count_preds = self.fc_count(self.activate(self.count_ffn(outs_dec))) #bs x Ndec x Nq x 80*2
+        if self.count_dist == 'normal':
+            count_preds = self.activate(self.count_ffn(outs_dec))
+            count_preds = self.fc_count(count_preds)
             count_preds = count_preds.mean(dim=2) #b x Ndec x 80*2
-            self.count_rates = self.softplus(count_preds) #stash here for now
-            #count_dists = Poisson(count_rate)
+            mean, var = count_preds.split(80, dim=-1)
+            var = self.softplus(var)
+            self.count_dists = Normal(mean, var)
 
+        elif self.count_dist == 'poisson':
+            count_preds = self.activate(self.count_ffn(outs_dec))
+            count_preds = self.fc_count(count_preds)
+            count_preds = count_preds.mean(dim=2) #b x Ndec x 80*2
+            count_rates = self.softplus(count_preds) #stash here for now
+            self.count_dists = Poisson(count_rates)
+       
         return (cls_scores, ), (bbox_preds, )
     
     def forward_transformer(self, x, query_embeds, img_metas):
@@ -435,11 +448,11 @@ class DETRHead(AnchorFreeHead):
         loss_dict['loss_bbox'] = losses_bbox[-1]
         loss_dict['loss_iou'] = losses_iou[-1]
 
-        if self.loss_count is not None:
-            count_dists = Poisson(self.count_rates)
+        if self.count_dist is not None:
+            #count_dists = Poisson(self.count_rates)
             gt_counts = [torch.bincount(labels, minlength=80).unsqueeze(0) for labels in gt_labels_list]
             gt_counts = torch.cat(gt_counts, dim=0).unsqueeze(0) #because 6 layers
-            log_probs = count_dists.log_prob(gt_counts) #Ndec x bs x 80
+            log_probs = self.count_dists.log_prob(gt_counts) #Ndec x bs x 80
             nll = (-log_probs).mean(dim=-1)
             nll = nll.mean(dim=-1)
             loss_dict['loss_count'] = nll[-1]

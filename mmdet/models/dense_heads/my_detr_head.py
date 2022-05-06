@@ -186,9 +186,10 @@ class MyDETRHead(AnchorFreeHead):
     def init_weights(self):
         """Initialize weights of the transformer head."""
         # The initialization for transformer is important
-        #self.transformer.init_weights()
         self.encoder.init_weights()
         self.decoder.init_weights()
+        
+
         # prior_prob = 0.01
         # bias_value = -math.log((1 - prior_prob) / prior_prob)
         # self.cls_head.bias.data = torch.ones(81) * bias_value
@@ -197,7 +198,11 @@ class MyDETRHead(AnchorFreeHead):
         for m in self.bbox_head.modules():
             if hasattr(m, 'weight') and m.weight.dim() > 1:
                 xavier_init(m, distribution='uniform')
-        
+         
+        # for m in self.query_embedding.modules():
+            # if hasattr(m, 'weight') and m.weight.dim() > 1:
+                # xavier_init(m, distribution='uniform')
+
         # nn.init.constant_(self.bbox_head[-2].weight.data, 0)
         # nn.init.constant_(self.bbox_head[-2].bias.data, 0)
        
@@ -245,14 +250,16 @@ class MyDETRHead(AnchorFreeHead):
             for b in range(B):
                 orig_H, orig_W, _ = img_metas[b]['img_shape']
                 offset[b, 0, 0:orig_H, 0:orig_W] = 0
-            
             offset = F.interpolate(offset, size=(H, W))
+            mask = offset.squeeze(1).bool()
+            mask = (~mask).int()
             offset[offset != 0] = -torch.inf
             offset = offset.flatten(2)
             offset = offset.unsqueeze(-2)
 
         
-        feats_pos = self.feats_pos_encoding(feats)
+        #feats_pos = self.feats_pos_encoding(feats)
+        feats_pos = self.feats_pos_encoding(mask)
         feats = self.encoder(feats, feats_pos, offset=offset)
         embeds = self.query_embedding.weight.unsqueeze(0)
         embeds = embeds.expand(B, -1, -1)

@@ -25,58 +25,34 @@ from mmcv.cnn import build_norm_layer, xavier_init
 
 @HEADS.register_module()
 class MyDETRHead(AnchorFreeHead):
-    """Implements the DETR transformer head.
-
-    See `paper: End-to-End Object Detection with Transformers
-    <https://arxiv.org/pdf/2005.12872>`_ for details.
-
-    Args:
-        num_classes (int): Number of categories excluding the background.
-        in_channels (int): Number of channels in the input feature map.
-        num_query (int): Number of query in Transformer.
-        num_reg_fcs (int, optional): Number of fully-connected layers used in
-            `FFN`, which is then used for the regression head. Default 2.
-        transformer (obj:`mmcv.ConfigDict`|dict): Config for transformer.
-            Default: None.
-        sync_cls_avg_factor (bool): Whether to sync the avg_factor of
-            all ranks. Default to False.
-        positional_encoding (obj:`mmcv.ConfigDict`|dict):
-            Config for position encoding.
-        loss_cls (obj:`mmcv.ConfigDict`|dict): Config of the
-            classification loss. Default `CrossEntropyLoss`.
-        loss_bbox (obj:`mmcv.ConfigDict`|dict): Config of the
-            regression loss. Default `L1Loss`.
-        loss_iou (obj:`mmcv.ConfigDict`|dict): Config of the
-            regression iou loss. Default `GIoULoss`.
-        tran_cfg (obj:`mmcv.ConfigDict`|dict): Training config of
-            transformer head.
-        test_cfg (obj:`mmcv.ConfigDict`|dict): Testing config of
-            transformer head.
-        init_cfg (dict or list[dict], optional): Initialization config dict.
-            Default: None
-    """
-
-    _version = 2
-
     def __init__(self,
                  num_classes,
                  in_channels,
                  num_query=100,
-                 num_reg_fcs=2,
                  encoder_cfg=None,
                  decoder_cfg=None,
                  feats_pos_cfg=dict(type='SineEncoding2d', dim=256),
+                 embeds_pos_cfg=dict(type='RefPointEncoding', dim=256),
                  sync_cls_avg_factor=False,
-                 positional_encoding=dict(
-                     type='SinePositionalEncoding',
-                     num_feats=128,
-                     normalize=True),
+                 cls_head_cfg=dict(type='MLP', 
+                     in_channels=256, 
+                     hidden_channels=[256, 256],
+                     out_channels=81,
+                     act_cfg=dict(type='GELU'),
+                 ),
+                 bbox_head_cfg=dict(type='MLP', 
+                     in_channels=256, 
+                     hidden_channels=[256, 256],
+                     out_channels=4,
+                     act_cfg=dict(type='GELU'),
+                 ),
                  loss_cls=dict(
                      type='CrossEntropyLoss',
                      bg_cls_weight=0.1,
                      use_sigmoid=False,
                      loss_weight=1.0,
-                     class_weight=1.0),
+                     class_weight=1.0
+                 ),
                  loss_bbox=dict(type='L1Loss', loss_weight=5.0),
                  loss_iou=dict(type='GIoULoss', loss_weight=2.0),
                  loss_count=None,
@@ -90,9 +66,6 @@ class MyDETRHead(AnchorFreeHead):
                  init_cfg=None,
                  **kwargs
         ):
-        # NOTE here use `AnchorFreeHead` instead of `TransformerHead`,
-        # since it brings inconvenience when the initialization of
-        # `AnchorFreeHead` is called.
         super(AnchorFreeHead, self).__init__(init_cfg)
         self.loss_count = loss_count
         self.bg_cls_weight = 0
@@ -136,87 +109,49 @@ class MyDETRHead(AnchorFreeHead):
         self.num_query = num_query
         self.num_classes = num_classes
         self.in_channels = in_channels
-        self.num_reg_fcs = num_reg_fcs
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
         self.fp16_enabled = False
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
         self.loss_iou = build_loss(loss_iou)
-
-        self.encoder = build_from_cfg(encoder_cfg, FEEDFORWARD_NETWORK)
+        
+        self.encoder = None
+        if encoder_cfg is not None:
+            self.encoder = build_from_cfg(encoder_cfg, FEEDFORWARD_NETWORK)
         self.decoder = build_from_cfg(decoder_cfg, FEEDFORWARD_NETWORK)
         self.feats_pos_encoding = build_from_cfg(feats_pos_cfg, POSITIONAL_ENCODING)
+        self.embeds_pos_encoding = build_from_cfg(embeds_pos_cfg, POSITIONAL_ENCODING)
 
+        self.cls_head = build_from_cfg(cls_head_cfg, FEEDFORWARD_NETWORK)
+        self.bbox_head = build_from_cfg(bbox_head_cfg, FEEDFORWARD_NETWORK)
 
-        if self.loss_cls.use_sigmoid:
-            self.cls_out_channels = num_classes
-        else:
-            self.cls_out_channels = num_classes + 1
-        self.act_cfg = dict(type='ReLU', inplace=True)
+        # if self.loss_cls.use_sigmoid:
+            # self.cls_out_channels = num_classes
+        # else:
+            # self.cls_out_channels = num_classes + 1
+        # self.act_cfg = dict(type='ReLU', inplace=True)
 
         # self.activate = build_activation_layer(self.act_cfg)
         # self.positional_encoding = build_positional_encoding(
             # positional_encoding)
         # self.transformer = build_transformer(transformer)
-        self.embed_dims = in_channels
-        assert 'num_feats' in positional_encoding
-        num_feats = positional_encoding['num_feats']
-        assert num_feats * 2 == self.embed_dims, 'embed_dims should' \
-            f' be exactly 2 times of num_feats. Found {self.embed_dims}' \
-            f' and {num_feats}.'
-        self._init_layers()
-
-    def _init_layers(self):
-        """Initialize layers of the transformer head."""
-        self.cls_head = Linear(self.embed_dims, self.cls_out_channels)
-        self.bbox_head = nn.Sequential(
-            Linear(self.embed_dims, self.embed_dims),
-            build_activation_layer(self.act_cfg),
-            Linear(self.embed_dims, self.embed_dims),
-            build_activation_layer(self.act_cfg),
-            Linear(self.embed_dims, 4),
-            nn.Sigmoid()
-        )
+        self.embed_dims = 256
+        # assert 'num_feats' in positional_encoding
+        # num_feats = positional_encoding['num_feats']
+        # assert num_feats * 2 == self.embed_dims, 'embed_dims should' \
+            # f' be exactly 2 times of num_feats. Found {self.embed_dims}' \
+            # f' and {num_feats}.'
         self.query_embedding = nn.Embedding(self.num_query, self.embed_dims)
-        
-        if self.loss_count is not None:
-            pass
-
+        # self._init_layers()
+    
     def init_weights(self):
         """Initialize weights of the transformer head."""
         # The initialization for transformer is important
-        self.encoder.init_weights()
+        if self.encoder is not None:
+            self.encoder.init_weights()
         self.decoder.init_weights()
         
-
-        # prior_prob = 0.01
-        # bias_value = -math.log((1 - prior_prob) / prior_prob)
-        # self.cls_head.bias.data = torch.ones(81) * bias_value
-        
-        nn.init.constant_(self.cls_head.bias, 0.0)
-        for m in self.bbox_head.modules():
-            if hasattr(m, 'weight') and m.weight.dim() > 1:
-                xavier_init(m, distribution='uniform')
-         
-        # for m in self.query_embedding.modules():
-            # if hasattr(m, 'weight') and m.weight.dim() > 1:
-                # xavier_init(m, distribution='uniform')
-
-        # nn.init.constant_(self.bbox_head[-2].weight.data, 0)
-        # nn.init.constant_(self.bbox_head[-2].bias.data, 0)
-       
-       # if self.loss_cls.use_sigmoid:
-            # bias_init = bias_init_with_prob(0.01)
-            # for m in self.cls_branches:
-                # nn.init.constant_(m.bias, bias_init)
-        # for m in self.reg_branches:
-            # constant_init(m[-1], 0, bias=0)
-        # nn.init.constant_(self.reg_branches[0][-1].bias.data[2:], -2.0)
-        # if self.as_two_stage:
-            # for m in self.reg_branches:
-                # nn.init.constant_(m[-1].bias.data[2:], 0.0)
-
 
     def forward(self, feats, img_metas):
         """Forward function.
@@ -244,136 +179,32 @@ class MyDETRHead(AnchorFreeHead):
         B, H, W, D = feats.shape
        
         offset = 0
-        if B > 1:
-            input_H, input_W = img_metas[0]['batch_input_shape']
-            offset = feats.new_ones(B, 1, input_H, input_W)
-            for b in range(B):
-                orig_H, orig_W, _ = img_metas[b]['img_shape']
-                offset[b, 0, 0:orig_H, 0:orig_W] = 0
-            offset = F.interpolate(offset, size=(H, W))
-            mask = offset.squeeze(1).bool()
-            mask = (~mask).int()
-            offset[offset != 0] = -torch.inf
-            offset = offset.flatten(2)
-            offset = offset.unsqueeze(-2)
+        input_H, input_W = img_metas[0]['batch_input_shape']
+        offset = feats.new_ones(B, 1, input_H, input_W)
+        for b in range(B):
+            orig_H, orig_W, _ = img_metas[b]['img_shape']
+            offset[b, 0, 0:orig_H, 0:orig_W] = 0
+        offset = F.interpolate(offset, size=(H, W))
+        mask = offset.squeeze(1).bool()
+        mask = (~mask).int()
+        offset[offset != 0] = -torch.inf
+        offset = offset.flatten(2)
+        offset = offset.unsqueeze(-2)
 
         
-        #feats_pos = self.feats_pos_encoding(feats)
-        feats_pos = self.feats_pos_encoding(mask)
-        feats = self.encoder(feats, feats_pos, offset=offset)
-        embeds = self.query_embedding.weight.unsqueeze(0)
-        embeds = embeds.expand(B, -1, -1)
-
-        embeds = self.decoder(embeds, feats, feats_pos, offset=offset)
+        feats_pos = self.feats_pos_encoding(feats)
+        # feats_pos = self.feats_pos_encoding(mask)
+        if self.encoder is not None:
+            feats = self.encoder(feats, feats_pos, offset=offset)
+        embeds_pos = self.query_embedding.weight.unsqueeze(0)
+        embeds_pos = embeds_pos.expand(B, -1, -1)
+        embeds_pos = self.embeds_pos_encoding(embeds_pos) + embeds_pos
+        embeds = torch.zeros_like(embeds_pos)
+        embeds = self.decoder(embeds, embeds_pos, feats, feats_pos, offset=offset)
         cls_scores = self.cls_head(embeds)
-        bbox_preds = self.bbox_head(embeds)
+        bbox_preds = self.bbox_head(embeds).sigmoid()
         return (cls_scores, ), (bbox_preds, )
     
-    def forward_transformer(self, x, query_embeds, img_metas):
-        batch_size = x.size(0)
-        input_img_h, input_img_w = img_metas[0]['batch_input_shape']
-        masks = x.new_ones((batch_size, input_img_h, input_img_w))
-        for img_id in range(batch_size):
-            img_h, img_w, _ = img_metas[img_id]['img_shape']
-            masks[img_id, :img_h, :img_w] = 0
-
-        x = self.input_proj(x)
-        # interpolate masks to have the same spatial shape with x
-        masks = F.interpolate(
-            masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-        # position encoding
-        pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
-        mask = masks
-
-        bs, c, h, w = x.shape
-        # use `view` instead of `flatten` for dynamically exporting to ONNX
-        x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
-        pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
-        query_embed = query_embeds.unsqueeze(1).repeat(1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
-        mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
-        memory = self.transformer.encoder(
-            query=x,
-            key=None,
-            value=None,
-            query_pos=pos_embed,
-            query_key_padding_mask=mask
-        )
-
-        target = torch.zeros_like(query_embed)
-        # out_dec: [num_layers, num_query, bs, dim]
-        out_dec = self.transformer.decoder(
-            query=target,
-            key=memory,
-            value=memory,
-            key_pos=pos_embed,
-            query_pos=query_embed,
-            key_padding_mask=mask)
-        out_dec = out_dec.transpose(1, 2)
-        # memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
-
-        # outs_dec: [nb_dec, bs, num_query, embed_dim]
-        #outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed)
-        return out_dec
-
-    def forward_single(self, x, img_metas):
-        """"Forward function for a single feature level.
-
-        Args:
-            x (Tensor): Input feature from backbone's single stage, shape
-                [bs, c, h, w].
-            img_metas (list[dict]): List of image information.
-
-        Returns:
-            all_cls_scores (Tensor): Outputs from the classification head,
-                shape [nb_dec, bs, num_query, cls_out_channels]. Note
-                cls_out_channels should includes background.
-            all_bbox_preds (Tensor): Sigmoid outputs from the regression
-                head with normalized coordinate format (cx, cy, w, h).
-                Shape [nb_dec, bs, num_query, 4].
-        """
-        # construct binary masks which used for the transformer.
-        # NOTE following the official DETR repo, non-zero values representing
-        # ignored positions, while zero values means valid positions.
-
-        if self.freeze_proj:
-            with torch.no_grad():
-                batch_size = x.size(0)
-                input_img_h, input_img_w = img_metas[0]['batch_input_shape']
-                masks = x.new_ones((batch_size, input_img_h, input_img_w))
-                for img_id in range(batch_size):
-                    img_h, img_w, _ = img_metas[img_id]['img_shape']
-                    masks[img_id, :img_h, :img_w] = 0
-
-                x = self.input_proj(x)
-                # interpolate masks to have the same spatial shape with x
-                masks = F.interpolate(
-                    masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-                # position encoding
-                pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
-
-        else:
-            batch_size = x.size(0)
-            input_img_h, input_img_w = img_metas[0]['batch_input_shape']
-            masks = x.new_ones((batch_size, input_img_h, input_img_w))
-            for img_id in range(batch_size):
-                img_h, img_w, _ = img_metas[img_id]['img_shape']
-                masks[img_id, :img_h, :img_w] = 0
-
-            x = self.input_proj(x)
-            # interpolate masks to have the same spatial shape with x
-            masks = F.interpolate(
-                masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-            # position encoding
-            pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
-
-        # outs_dec: [nb_dec, bs, num_query, embed_dim]
-        outs_dec, _ = self.transformer(x, masks, self.query_embedding.weight,
-                                       pos_embed)
-        return outs_dec
-        # all_cls_scores = self.fc_cls(outs_dec)
-        # all_bbox_preds = self.fc_reg(self.activate(
-            # self.reg_ffn(outs_dec))).sigmoid()
-        # return all_cls_scores, all_bbox_preds
 
     @force_fp32(apply_to=('all_cls_scores_list', 'all_bbox_preds_list'))
     def loss(self,
@@ -497,7 +328,8 @@ class MyDETRHead(AnchorFreeHead):
         bbox_weights = torch.cat(bbox_weights_list, 0)
 
         # classification loss
-        cls_scores = cls_scores.reshape(-1, self.cls_out_channels)
+        Nc = cls_scores.shape[-1]
+        cls_scores = cls_scores.reshape(-1, Nc)
         # construct weighted avg_factor to match with the official DETR repo
         cls_avg_factor = num_total_pos * 1.0 + \
             num_total_neg * self.bg_cls_weight
@@ -827,142 +659,3 @@ class MyDETRHead(AnchorFreeHead):
         outs = self.forward(feats, img_metas)
         results_list = self.get_bboxes(*outs, img_metas, rescale=rescale)
         return results_list
-
-    def forward_onnx(self, feats, img_metas):
-        """Forward function for exporting to ONNX.
-
-        Over-write `forward` because: `masks` is directly created with
-        zero (valid position tag) and has the same spatial size as `x`.
-        Thus the construction of `masks` is different from that in `forward`.
-
-        Args:
-            feats (tuple[Tensor]): Features from the upstream network, each is
-                a 4D-tensor.
-            img_metas (list[dict]): List of image information.
-
-        Returns:
-            tuple[list[Tensor], list[Tensor]]: Outputs for all scale levels.
-
-                - all_cls_scores_list (list[Tensor]): Classification scores \
-                    for each scale level. Each is a 4D-tensor with shape \
-                    [nb_dec, bs, num_query, cls_out_channels]. Note \
-                    `cls_out_channels` should includes background.
-                - all_bbox_preds_list (list[Tensor]): Sigmoid regression \
-                    outputs for each scale level. Each is a 4D-tensor with \
-                    normalized coordinate format (cx, cy, w, h) and shape \
-                    [nb_dec, bs, num_query, 4].
-        """
-        num_levels = len(feats)
-        img_metas_list = [img_metas for _ in range(num_levels)]
-        return multi_apply(self.forward_single_onnx, feats, img_metas_list)
-
-    def forward_single_onnx(self, x, img_metas):
-        """"Forward function for a single feature level with ONNX exportation.
-
-        Args:
-            x (Tensor): Input feature from backbone's single stage, shape
-                [bs, c, h, w].
-            img_metas (list[dict]): List of image information.
-
-        Returns:
-            all_cls_scores (Tensor): Outputs from the classification head,
-                shape [nb_dec, bs, num_query, cls_out_channels]. Note
-                cls_out_channels should includes background.
-            all_bbox_preds (Tensor): Sigmoid outputs from the regression
-                head with normalized coordinate format (cx, cy, w, h).
-                Shape [nb_dec, bs, num_query, 4].
-        """
-        # Note `img_shape` is not dynamically traceable to ONNX,
-        # since the related augmentation was done with numpy under
-        # CPU. Thus `masks` is directly created with zeros (valid tag)
-        # and the same spatial shape as `x`.
-        # The difference between torch and exported ONNX model may be
-        # ignored, since the same performance is achieved (e.g.
-        # 40.1 vs 40.1 for DETR)
-        batch_size = x.size(0)
-        h, w = x.size()[-2:]
-        masks = x.new_zeros((batch_size, h, w))  # [B,h,w]
-
-        x = self.input_proj(x)
-        # interpolate masks to have the same spatial shape with x
-        masks = F.interpolate(
-            masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
-        pos_embed = self.positional_encoding(masks)
-        outs_dec, _ = self.transformer(x, masks, self.query_embedding.weight,
-                                       pos_embed)
-
-        all_cls_scores = self.fc_cls(outs_dec)
-        all_bbox_preds = self.fc_reg(self.activate(
-            self.reg_ffn(outs_dec))).sigmoid()
-        return all_cls_scores, all_bbox_preds
-
-    def onnx_export(self, all_cls_scores_list, all_bbox_preds_list, img_metas):
-        """Transform network outputs into bbox predictions, with ONNX
-        exportation.
-
-        Args:
-            all_cls_scores_list (list[Tensor]): Classification outputs
-                for each feature level. Each is a 4D-tensor with shape
-                [nb_dec, bs, num_query, cls_out_channels].
-            all_bbox_preds_list (list[Tensor]): Sigmoid regression
-                outputs for each feature level. Each is a 4D-tensor with
-                normalized coordinate format (cx, cy, w, h) and shape
-                [nb_dec, bs, num_query, 4].
-            img_metas (list[dict]): Meta information of each image.
-
-        Returns:
-            tuple[Tensor, Tensor]: dets of shape [N, num_det, 5]
-                and class labels of shape [N, num_det].
-        """
-        assert len(img_metas) == 1, \
-            'Only support one input image while in exporting to ONNX'
-
-        cls_scores = all_cls_scores_list[-1][-1]
-        bbox_preds = all_bbox_preds_list[-1][-1]
-
-        # Note `img_shape` is not dynamically traceable to ONNX,
-        # here `img_shape_for_onnx` (padded shape of image tensor)
-        # is used.
-        img_shape = img_metas[0]['img_shape_for_onnx']
-        max_per_img = self.test_cfg.get('max_per_img', self.num_query)
-        batch_size = cls_scores.size(0)
-        # `batch_index_offset` is used for the gather of concatenated tensor
-        batch_index_offset = torch.arange(batch_size).to(
-            cls_scores.device) * max_per_img
-        batch_index_offset = batch_index_offset.unsqueeze(1).expand(
-            batch_size, max_per_img)
-
-        # supports dynamical batch inference
-        if self.loss_cls.use_sigmoid:
-            cls_scores = cls_scores.sigmoid()
-            scores, indexes = cls_scores.view(batch_size, -1).topk(
-                max_per_img, dim=1)
-            det_labels = indexes % self.num_classes
-            bbox_index = indexes // self.num_classes
-            bbox_index = (bbox_index + batch_index_offset).view(-1)
-            bbox_preds = bbox_preds.view(-1, 4)[bbox_index]
-            bbox_preds = bbox_preds.view(batch_size, -1, 4)
-        else:
-            scores, det_labels = F.softmax(
-                cls_scores, dim=-1)[..., :-1].max(-1)
-            scores, bbox_index = scores.topk(max_per_img, dim=1)
-            bbox_index = (bbox_index + batch_index_offset).view(-1)
-            bbox_preds = bbox_preds.view(-1, 4)[bbox_index]
-            det_labels = det_labels.view(-1)[bbox_index]
-            bbox_preds = bbox_preds.view(batch_size, -1, 4)
-            det_labels = det_labels.view(batch_size, -1)
-
-        det_bboxes = bbox_cxcywh_to_xyxy(bbox_preds)
-        # use `img_shape_tensor` for dynamically exporting to ONNX
-        img_shape_tensor = img_shape.flip(0).repeat(2)  # [w,h,w,h]
-        img_shape_tensor = img_shape_tensor.unsqueeze(0).unsqueeze(0).expand(
-            batch_size, det_bboxes.size(1), 4)
-        det_bboxes = det_bboxes * img_shape_tensor
-        # dynamically clip bboxes
-        x1, y1, x2, y2 = det_bboxes.split((1, 1, 1, 1), dim=-1)
-        from mmdet.core.export import dynamic_clip_for_onnx
-        x1, y1, x2, y2 = dynamic_clip_for_onnx(x1, y1, x2, y2, img_shape)
-        det_bboxes = torch.cat([x1, y1, x2, y2], dim=-1)
-        det_bboxes = torch.cat((det_bboxes, scores.unsqueeze(-1)), -1)
-
-        return det_bboxes, det_labels

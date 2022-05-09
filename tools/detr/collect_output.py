@@ -41,13 +41,32 @@ for idx in trange(len(dataset)):
         bbox_preds = model.bbox_head.fc_reg(bbox_preds) #linear
         bbox_preds = torch.sigmoid(bbox_preds) #6 x 100 x 4
 
-        if model.bbox_head.loss_count is not None:
-            count_preds = model.bbox_head.count_ffn(query_embeds) #linear
-            count_preds = model.bbox_head.activate(count_preds) #relu
-            count_preds = model.bbox_head.fc_count(count_preds) #linear
-            count_preds = count_preds.mean(dim=1)
-            count_rates = model.bbox_head.softplus(count_preds)
+        if model.bbox_head.count_dist == 'normal':
+            count_preds = model.bbox_head.activate(model.bbox_head.count_ffn(query_embeds))
+            count_preds = model.bbox_head.fc_count(count_preds)
+            import ipdb; ipdb.set_trace() # noqa
+            count_preds = count_preds.mean(dim=-2) #b x Ndec x 80*2
+            mean, var = count_preds.split(80, dim=-1)
+            var = model.bbox_head.softplus(var)
+            result['mean'] = mean.cpu().numpy()
+            result['var'] = var.cpu().numpy()
+            # model.bbox_head.count_dists = Normal(mean, var)
+
+        elif model.bbox_head.count_dist == 'poisson':
+            count_preds = model.bbox_head.activate(model.bbox_head.count_ffn(query_embeds))
+            count_preds = model.bbox_head.fc_count(count_preds)
+            count_preds = count_preds.mean(dim=2) #b x Ndec x 80*2
+            count_rates = model.bbox_head.softplus(count_preds) #stash here for now
             result['count_rates'] = count_rates.cpu().numpy()
+            # model.bbox_head.count_dists = Poisson(count_rates)
+
+
+        # if model.bbox_head.loss_count is not None:
+            # count_preds = model.bbox_head.count_ffn(query_embeds) #linear
+            # count_preds = model.bbox_head.activate(count_preds) #relu
+            # count_preds = model.bbox_head.fc_count(count_preds) #linear
+            # count_preds = count_preds.mean(dim=1)
+            # count_rates = model.bbox_head.softplus(count_preds)
 
     
     #collect output

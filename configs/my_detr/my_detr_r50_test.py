@@ -141,6 +141,6 @@ optimizer = dict(
 # optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 optimizer_config = dict(grad_clip=dict(max_norm=1, norm_type=2))
 # learning policy
-lr_config = dict(policy='step', step=[133])
-runner = dict(type='EpochBasedRunner', max_epochs=200)
-checkpoint_config = dict(interval=1)
+lr_config = dict(policy='step', step=[40])
+runner = dict(type='EpochBasedRunner', max_epochs=50)
+checkpoint_config = dict(interval=10)

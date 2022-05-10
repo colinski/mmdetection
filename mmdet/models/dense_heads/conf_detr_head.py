@@ -527,12 +527,17 @@ class ConfDETRHead(AnchorFreeHead):
         conf_scores = cls_scores[..., -1].unsqueeze(-1)
         cls_scores = cls_scores[..., 0:80]
         #conf_targets = torch.ones_lie(conf_scores)
-        conf_targets = conf_scores.new_ones(conf_scores.shape)
         is_bg = labels == 80
-        conf_targets[~is_bg] = 0
         conf_probs = conf_scores.sigmoid()
         conf_probs = torch.cat([1.0 - conf_probs, conf_probs], dim=-1)
-        loss_conf = self.loss_conf(conf_probs, conf_targets.squeeze().long())
+        
+        conf_targets = conf_scores.new_ones(conf_scores.shape)
+        conf_targets[~is_bg] = 0
+        conf_targets = conf_targets.squeeze().long()
+        conf_weights = torch.ones_like(conf_targets).float()
+        conf_weights[is_bg] *= 0.1
+        
+        loss_conf = self.loss_conf(conf_probs, conf_targets, weight=conf_weights)
         
         cls_scores = cls_scores[~is_bg]
         labels = labels[~is_bg]

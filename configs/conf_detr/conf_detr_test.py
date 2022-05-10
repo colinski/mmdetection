@@ -5,7 +5,7 @@ _base_ = [
 checkpoint = 'checkpoints/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
 
 custom_imports = dict(
-        imports=['mmdet.models.dense_heads.count_detr_head'],
+        imports=['mmdet.models.dense_heads.conf_detr_head'],
         allow_failed_imports=False
 )
 
@@ -25,14 +25,14 @@ model = dict(
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
     bbox_head=dict(
-        type='CountDETRHead',
+        type='ConfDETRHead',
         num_classes=80,
         in_channels=2048,
         freeze_proj=True,
         transformer=dict(
             type='Transformer',
             freeze_encoder=True,
-            freeze_decoder=False,
+            freeze_decoder=True,
             encoder=dict(
                 type='DetrTransformerEncoder',
                 num_layers=6,

@@ -17,7 +17,7 @@ from torch.distributions import Poisson, Normal
 
 
 @HEADS.register_module()
-class CountDETRHead(AnchorFreeHead):
+class ConfDETRHead(AnchorFreeHead):
     """Implements the DETR transformer head.
 
     See `paper: End-to-End Object Detection with Transformers
@@ -100,7 +100,7 @@ class CountDETRHead(AnchorFreeHead):
         self.bg_cls_weight = 0
         self.sync_cls_avg_factor = sync_cls_avg_factor
         class_weight = loss_cls.get('class_weight', None)
-        if class_weight is not None and (self.__class__ is CountDETRHead):
+        if class_weight is not None and (self.__class__ is ConfDETRHead):
             assert isinstance(class_weight, float), 'Expected ' \
                 'class_weight to have type float. Found ' \
                 f'{type(class_weight)}.'
@@ -214,7 +214,7 @@ class CountDETRHead(AnchorFreeHead):
 
         # Names of some parameters in has been changed.
         version = local_metadata.get('version', None)
-        if (version is None or version < 2) and self.__class__ is CountDETRHead:
+        if (version is None or version < 2) and self.__class__ is ConfDETRHead:
             convert_dict = {
                 '.self_attn.': '.attentions.0.',
                 '.ffn.': '.ffns.0.',

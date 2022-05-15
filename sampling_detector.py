@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import scipy.stats
 import torch.nn as nn
+import scipy.spatial.distance
 
 class DisjointSet:
     def __init__(self):
@@ -60,7 +61,7 @@ class SamplingDetector():
         self.min_dets = min_dets
         self.visualise = vis
 
-    def form_final(self, detections, maximal=False):
+    def form_final(self, detections, maximal=False, return_clusters=False):
         #detections are in format of [logits, bbox]
 
         #cluster detections from each forward pass 
@@ -77,7 +78,10 @@ class SamplingDetector():
 
         final_detections = self.form_final_detections(observations, maximal=maximal)
 
-        return final_detections
+        if return_clusters:
+            return final_detections, [observation.tolist() for observation in observations]
+        else:
+            return final_detections
 
 
     def remove_for_min(self, det_set):
@@ -115,8 +119,8 @@ class SamplingDetector():
         else:
             label_matrix = np.asarray(self.label_association(distributions, distributions, self.label))
            
-            #detections have same winning label
-            matrix = (label_matrix) * spatial_matrix
+            #detections have same winning label #TODO: Change the addition below to multiplication later
+            matrix = (label_matrix) + spatial_matrix
 
         for i in range(len(detections)):
             #which other sets meet the threshold minimum?
@@ -184,6 +188,10 @@ class SamplingDetector():
 
         if 'kl' in method:
             assoc_matrix = scipy.stats.entropy(new_dists.T[:, :, None], old_dists.T[:, None, :])
+            return assoc_matrix
+        
+        if 'js' in method:
+            assoc_matrix = scipy.spatial.distance.jensenshannon(new_dists.T[:, :, None], old_dists.T[:, None, :], base=2.)
             return assoc_matrix
 
         for idx in range(len(new_dists)):

@@ -15,9 +15,13 @@ from pycocotools.cocoeval import COCOeval
 #     80, 81, 82, 84, 85, 86, 87, 88, 89, 90, 
 # ]
 
-
+# print(sys.argv)
 pkl_fname = sys.argv[1]
 json_fname = sys.argv[2]
+# bg_iou_threshold = float(sys.argv[3])/10.
+# print(sys.argv[3])
+score_threshold = float(sys.argv[3])
+# score_threshold = 0.0
 
 with open(pkl_fname, 'rb') as f:
     output = pickle.load(f)
@@ -28,10 +32,10 @@ for sample in tqdm(output):
     img_id = int(fname.split('.')[0].split('_')[-1]) #infer img_id from filename
     bboxes = sample['bbox_preds'][-1] #100 x 4
     probs = sample['cls_probs'][-1] #100 x 81
-    # non_bg_mask = (np.argmax(probs, axis=-1)!= (probs.shape[1] - 1) ## Another background mask
+    non_bg_mask = (np.argmax(probs, axis=-1) != (probs.shape[1] - 1)) ## Another background mask
     probs = probs[:, :-1]
     
-    non_bg_mask = (np.sum(probs, axis=-1) >= 0.5)
+    # non_bg_mask = (np.sum(probs, axis=-1) >= bg_iou_threshold)
 
     if np.sum(non_bg_mask) == 0:
         results[fname] = []
@@ -58,7 +62,7 @@ for sample in tqdm(output):
 
     # TODO: Add score based threshold filtering for final detections.  
 
-    mask2 = (detections[:, -1] > 0.2)
+    mask2 = (detections[:, -1] >= score_threshold)
 
     if np.sum(mask2) == 0:
         results[fname] = []

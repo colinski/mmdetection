@@ -47,7 +47,7 @@ merger = SamplingDetector(iou = args.iou, min_dets=3)
 
 allOutputs = [None for i in range(num_models)]
 #load results from each individual model
-save_dir = 'logs/detr_r50_4x16_30e_output_heads_only_swag_seed_100'
+save_dir = 'logs/detr_r50_4x16_decoder_and_output'
 for i in range(1, num_models+1):
     try:
         print("Trying to load from path:" + f'{save_dir}/{args.saveNm}_{i}.json')
@@ -77,10 +77,12 @@ for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
         continue
   
     #cluster and merge ensemble detections into final detections (don't pass in final column with softmax score)
-    final_detections = merger.form_final(ensemble_detections[:, :-1], maximal=args.maximal)
+    clustering_output = merger.form_final(ensemble_detections[:, :-1], maximal=args.maximal, return_clusters=True)
 
-    if len(final_detections) == 0: #no valid detections were clustered
+    if len(clustering_output) == 0: #no valid detections were clustered
         continue
+    
+    final_detections, clusters = clustering_output[0], clustering_output[1]
 
     #calculate new max softmax score and concatenate to detections
     distsT = torch.Tensor(final_detections[:, :-4])
@@ -90,7 +92,7 @@ for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
 
 
     imDets = np.concatenate((final_detections, scoresT), 1)
-    ensembleResults[imKey] = imDets.tolist()
+    ensembleResults[imKey] = [imDets.tolist(), clusters]
 
 
 #save results

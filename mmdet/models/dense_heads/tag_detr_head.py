@@ -285,7 +285,6 @@ class TagDETRHead(AnchorFreeHead):
             self.reg_ffn(outs_dec))).sigmoid()
 
         tag_preds = self.fc_tag(self.activate(self.tag_ffn(outs_dec)))
-        tag_preds = self.fc_tag(self.activate(self.tag_ffn(outs_dec)))
         tag_preds = tag_preds.mean(dim=-2)
         self.tag_preds = tag_preds
         

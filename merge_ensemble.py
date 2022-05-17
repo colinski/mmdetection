@@ -39,6 +39,7 @@ def parse_args():
     return args
 
 args = parse_args()
+print(args)
 
 num_models = args.num_models
 
@@ -100,6 +101,6 @@ jsonRes = json.dumps(ensembleResults, indent=4)
 
 # save_dir = f'{save_dir}/FRCNN/raw/{args.dataset}/{args.subset}'
 iouEns = str(args.iou).replace('.', '')
-f = open(f'{save_dir}/merged_outputs_{iouEns}.json', 'w')
+f = open(f'{save_dir}/merged_outputs_{iouEns}_maximal.json', 'w')
 f.write(jsonRes)
 f.close()

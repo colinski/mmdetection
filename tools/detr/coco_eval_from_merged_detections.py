@@ -27,7 +27,7 @@ for imIdx, imKey in enumerate(output.keys()):
     if len(output[imKey])==0:
         continue
 
-    imDets = np.array(output[imKey])
+    imDets = np.array(output[imKey][0])
     bboxes = imDets[:, -5:-1] 
     probs = imDets[:, :-5]
 

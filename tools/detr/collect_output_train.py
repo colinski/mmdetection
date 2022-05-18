@@ -27,12 +27,13 @@ model = init_detector(config, checkpoint).cuda().eval()
 # model.cfg.data.train.pipeline[-1]['transforms'][-1] = collect_cfg
 dataset_cfg = model.cfg.data.train
 dataset = build_dataset(dataset_cfg)
-dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=1, dist=False, shuffle=True)
+dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=0, dist=False, shuffle=True)
 
 output = []
 
 #for idx in trange(len(dataset)):
 for idx, sample in enumerate(tqdm(dataloader)):
+    # print(idx)
     if idx % 30000 == 0 and idx != 0:
         with open(pkl_fname, 'wb') as f:
             pickle.dump(output, f)

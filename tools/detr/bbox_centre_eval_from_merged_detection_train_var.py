@@ -24,9 +24,11 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("--gt_pkl_filename", help="Pickle file containing ground truth.",
                     type=str)
+parser.add_argument('--merged_outputs_filename', help="JSON file for the merged outputs.",
+                    type=str)
 parser.add_argument('--result_output_filename', help="Output CSV filename", 
                     type=str)
-parser.add_argument('--score_threshold', help="Score threshold used in merging.", 
+parser.add_argument('--score_threshold', help="Score threshold used in filtering.", 
                     type=float)
 
 args = parser.parse_args()
@@ -72,6 +74,9 @@ def linear_assignment(cost_matrix):
     matches = torch.from_numpy(matches).long()
     return matches
 
+with open(args.merged_outputs_filename) as f:
+    merged_outputs = json.load(f)
+    
 with open(args.gt_pkl_filename, 'rb') as f:
     model_output = pickle.load(f)
     
@@ -87,32 +92,44 @@ total_gt_bboxes = 0
 unmatched_gt_boxes = []
 
 IOU_THRESHOLD = 0.5
-EMPIRICAL_VAR_X = 0.0002 #this is for base DETR
-EMPIRICAL_VAR_Y = 0.0002 #this is for base DETR
 
-# EMPIRICAL_VAR_X = 0.0002 #this is for ensemble
-# EMPIRICAL_VAR_Y = 0.0003 #this is for ensemble
+EMPIRICAL_VAR_X = 0.0002 #this is for ensemble
+EMPIRICAL_VAR_Y = 0.0003 #this is for ensemble
+
 
 for sample in model_output:
     fname = sample['ori_filename']
     H, W, _ = sample['ori_shape']
     gt_bboxes = torch.from_numpy(sample['gt_bboxes'])
     gt_labels = torch.from_numpy(sample['gt_labels']).long()    
-    probs = torch.from_numpy(sample['cls_probs'])[-1]    
+    
+    
+    total_gt_bboxes += len(gt_labels)
+    if merged_outputs[fname] == []:
+        continue
 
-    is_bg = (torch.argmax(probs, dim=-1) == (probs.shape[1] - 1)) 
+    preds = merged_outputs[fname][0]
+    clusters = merged_outputs[fname][1]
+    preds = torch.tensor(preds)
+    if len(preds) == 0:
+        count_no_preds += 1
+        #print(preds, fname, len(gt_labels))
+        all_labels.append(gt_labels)
+        all_probs.append(torch.ones(len(gt_labels), 81)/81.)
+        continue
+    probs = preds[:, 0:80]
+    sums = probs.sum(dim=-1).unsqueeze(-1)
+    bg_probs = torch.ones_like(sums) - sums
+    probs = torch.cat([probs, bg_probs], dim=-1)
+    is_bg = (torch.argmax(probs, dim=-1) == (probs.shape[1] - 1))
     max_probs, _ = probs.max(-1)
     is_conf = max_probs >= args.score_threshold
-
     mask = ~is_bg & is_conf
     probs = probs[mask]
-
-    H, W, _ = sample['ori_shape']
-    factor = torch.tensor([W, H, W, H]).unsqueeze(0)
-    bbox_preds = torch.from_numpy(sample['bbox_preds'][-1]) 
-    bbox_preds = bbox_cxcywh_to_xyxy(bbox_preds) * factor
     
+    bbox_preds = preds[:, -5:-1]
     bbox_preds = bbox_preds[mask]
+    clusters = np.array(clusters)[mask.numpy()].tolist()
     
     if len(bbox_preds) == 0:
         count_no_preds += 1
@@ -129,11 +146,12 @@ for sample in model_output:
     #compute pairwise iou between all predictions and gt
     #matrix has shape N_preds x N_gt (for detr, N_preds == 100)
     ious = BboxOverlaps2D()(bbox_preds, gt_bboxes)
-    
     gt_bboxes_centres = bbox_xyxy_to_cxcywh(gt_bboxes)[:, :2].div(torch.tensor([W, H]))
     pred_bboxes_centres_mean = bbox_xyxy_to_cxcywh(bbox_preds)[:, :2]
-    pred_bboxes_centres_var = torch.ones(len(bbox_preds), 2)
-    pred_bboxes_centres_var[:, 0], pred_bboxes_centres_var[:, 1] = pred_bboxes_centres_var[:, 0] *  EMPIRICAL_VAR_X, pred_bboxes_centres_var[:, 1] *  EMPIRICAL_VAR_Y
+    # pred_bboxes_centres_var = [bbox_xyxy_to_cxcywh(torch.tensor(cluster)[:, -4:]).div(torch.tensor([W, H, W, H])).var(dim=0) for cluster in clusters]
+    # pred_bboxes_centres_var = torch.stack(pred_bboxes_centres_var)[:, :2]
+    pred_bboxes_centres_var = torch.ones(len(pred_bboxes_centres_mean), 2)
+    pred_bboxes_centres_var[:, 0], pred_bboxes_centres_var[:, 1] = pred_bboxes_centres_var[:, 0] * EMPIRICAL_VAR_X, pred_bboxes_centres_var[:, 1] * EMPIRICAL_VAR_Y 
     pred_bboxes_centres_mean[:, 0], pred_bboxes_centres_mean[:, 1] = pred_bboxes_centres_mean[:, 0]/W, pred_bboxes_centres_mean[:, 1]/H
     pred_bboxes_centres_std = torch.sqrt(pred_bboxes_centres_var)
 

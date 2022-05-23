@@ -27,6 +27,8 @@ parser.add_argument('--result_output_filename', help="Output CSV filename",
                     type=str)
 parser.add_argument('--score_threshold', help="Score threshold used in merging.", 
                     type=float)
+parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
+                    type=float, default=0.5)
 
 args = parser.parse_args()
 
@@ -87,7 +89,7 @@ count_no_preds = 0
 total_gt_bboxes = 0
 unmatched_gt_boxes = []
 
-IOU_THRESHOLD = 0.5
+IOU_THRESHOLD = args.iou_threshold
 
 for sample in model_output:
     fname = sample['ori_filename']
@@ -154,7 +156,8 @@ for sample in model_output:
     
     #all gt boxes should be matched to something (could be background)
     if len(matches) != len(gt_bboxes):
-        count_unmatched += len(gt_bboxes) - len(matches)
+        if len(gt_bboxes) > len(matches): 
+            count_unmatched += len(gt_bboxes) - len(matches)
         matched_label_targets = torch.ones(len(matches)).long() * 80
         matched_label_targets = gt_labels[matches[:, 1]]
         all_probs.append(probs[matches[:, 0]])

@@ -27,6 +27,9 @@ parser.add_argument('--bg_threshold', help='Minimum proba threshold on the backg
                     type=float)
 parser.add_argument('--score_threshold', help='Minimum score threshold for predictions', 
                     type=float)
+parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
+                    type=float)
+
 
 args = parser.parse_args()
 
@@ -80,6 +83,8 @@ all_probs, all_labels = [], []
 count_unmatched = 0
 count_no_preds = 0
 total_gt_bboxes = 0
+
+IOU_THRESHOLD = 0.5
 
 for sample in data:
     gt_bboxes = torch.from_numpy(sample['gt_bboxes'])

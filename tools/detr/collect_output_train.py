@@ -27,7 +27,7 @@ model = init_detector(config, checkpoint).cuda().eval()
 # model.cfg.data.train.pipeline[-1]['transforms'][-1] = collect_cfg
 dataset_cfg = model.cfg.data.train
 dataset = build_dataset(dataset_cfg)
-dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=0, dist=False, shuffle=True)
+dataloader = build_dataloader(dataset, samples_per_gpu=1, workers_per_gpu=0, dist=False, shuffle=False, seed=1)
 
 output = []
 
@@ -48,6 +48,9 @@ for idx, sample in enumerate(tqdm(dataloader)):
     
     result['gt_bboxes'] = sample['gt_bboxes'].data[0][0].numpy()
     result['gt_labels'] = sample['gt_labels'].data[0][0].numpy()
+    # if len(result['gt_labels']) == 0:
+        # import pdb
+        # pdb.set_trace()
 
     with torch.no_grad():
         #run backbone and transformer

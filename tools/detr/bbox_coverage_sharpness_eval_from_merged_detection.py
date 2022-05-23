@@ -29,7 +29,9 @@ parser.add_argument('--merged_outputs_filename', help="JSON file for the merged 
 parser.add_argument('--result_output_filename', help="Output CSV filename", 
                     type=str)
 parser.add_argument('--score_threshold', help="Score threshold used in merging.", 
-                    type=float)
+                    type=float, default=0.0)
+parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
+                    type=float, default=0.5)
 
 args = parser.parse_args()
 
@@ -111,7 +113,7 @@ count_no_preds = 0
 total_gt_bboxes = 0
 unmatched_gt_boxes = []
 
-IOU_THRESHOLD = 0.5
+IOU_THRESHOLD = args.iou_threshold
 
 for sample in model_output:
     fname = sample['ori_filename']

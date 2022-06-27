@@ -15,12 +15,13 @@ class DETR(SingleStageDetector):
     def __init__(self,
                  backbone,
                  bbox_head,
+                 neck=None,
                  freeze_backbone=False,
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None,
                  init_cfg=None):
-        super(DETR, self).__init__(backbone, None, bbox_head, train_cfg,
+        super(DETR, self).__init__(backbone, neck, bbox_head, train_cfg,
                                    test_cfg, pretrained, init_cfg)
         self.freeze_backbone = freeze_backbone
 

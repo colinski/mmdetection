@@ -87,7 +87,7 @@ total_gt_bboxes = 0
 unmatched_gt_boxes = []
 
 IOU_THRESHOLD = 0.5
-EMPIRICAL_VAR_X = 0.0002 #this is for base DETR
+EMPIRICAL_VAR_X = 0.0001 #this is for base DETR
 EMPIRICAL_VAR_Y = 0.0002 #this is for base DETR
 
 # EMPIRICAL_VAR_X = 0.0002 #this is for ensemble

@@ -23,12 +23,11 @@ parser.add_argument("--gt_pkl_filename", help="Pickle file containing ground tru
                     type=str)
 parser.add_argument('--result_output_filename', help="Output CSV filename", 
                     type=str)
-parser.add_argument('--bg_threshold', help='Minimum proba threshold on the background class proba to be filtered', 
-                    type=float)
 parser.add_argument('--score_threshold', help='Minimum score threshold for predictions', 
                     type=float)
 parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
-                    type=float)
+                    type=float, default=0.5)
+parser.add_argument('--result_identifiers', type=str, help='Additional identifiers for CSV', default=None)
 
 
 args = parser.parse_args()
@@ -80,17 +79,18 @@ with open(args.gt_pkl_filename, 'rb') as f:
     data = pickle.load(f)
     
 all_probs, all_labels = [], []
+matched_probs, matched_labels = [], []
 count_unmatched = 0
 count_no_preds = 0
 total_gt_bboxes = 0
 
-IOU_THRESHOLD = 0.5
+IOU_THRESHOLD = args.iou_threshold
 
 for sample in data:
     gt_bboxes = torch.from_numpy(sample['gt_bboxes'])
     gt_labels = torch.from_numpy(sample['gt_labels']).long()    
     probs = torch.from_numpy(sample['cls_probs'])[-1]
-    is_bg = probs[:, -1] >= args.bg_threshold
+    is_bg = (torch.argmax(probs, dim=-1) == (probs.shape[1] - 1)) 
     max_probs, _ = probs.max(-1)
     is_conf = max_probs >= args.score_threshold
 
@@ -129,11 +129,14 @@ for sample in data:
     #all gt boxes should be matched to something (could be background)
     #assert len(matches) == len(gt_bboxes)
     if len(matches) != len(gt_bboxes):
-        count_unmatched += len(gt_bboxes) - len(matches)
+        if len(gt_bboxes) > len(matches): 
+            count_unmatched += len(gt_bboxes) - len(matches)
         matched_label_targets = torch.ones(len(matches)).long() * 80
         matched_label_targets = gt_labels[matches[:, 1]]
         all_probs.append(probs[matches[:, 0]])
         all_labels.append(matched_label_targets)
+        matched_probs.append(probs[matches[:, 0]])
+        matched_labels.append(matched_label_targets)
         unmatched_gt_indxs = np.setdiff1d(np.arange(len(gt_bboxes)), matches[:, 1])
         
         if len(unmatched_gt_indxs) != 0:
@@ -158,7 +161,8 @@ for sample in data:
     
 all_probs = torch.cat(all_probs)
 all_labels = torch.cat(all_labels)
-
+matched_probs = torch.cat(matched_probs)
+matched_labels = torch.cat(matched_labels)
 
 
 def get_nll(probs, labels):
@@ -179,7 +183,17 @@ ece = _get_ece(all_probs.numpy(), all_labels.numpy())
 nll = get_nll(all_probs, all_labels)
 acc = get_acc(all_probs, all_labels)
 
-results_row = [args.bg_threshold, args.score_threshold, ece, nll, acc, count_unmatched, len(all_labels), len(all_probs)]
+ece_matched = _get_ece(matched_probs.numpy(), matched_labels.numpy())
+nll_matched = get_nll(matched_probs, matched_labels)
+acc_matched = get_acc(matched_probs, matched_labels)
+
+results_row = [args.score_threshold, args.iou_threshold, ece, nll, acc, ece_matched, nll_matched, acc_matched, len(matched_probs), count_unmatched, len(all_labels), len(all_probs)]
+
+if args.result_identifiers is not None:
+    result_identifiers = args.result_identifiers.split(",")
+    results_row = results_row + result_identifiers
+
+print(results_row)
 
 with open(args.result_output_filename, 'a') as csv_file:
     writer = csv.writer(csv_file)

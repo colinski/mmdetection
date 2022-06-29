@@ -39,7 +39,7 @@ for sample in tqdm(output):
     cls_preds = np.argmax(probs, axis=-1)#[:, np.newaxis] #100, 1
     scores = np.amax(probs, axis=-1)#[:, np.newaxis] #100, 1
 
-    mask2 = (scores > 0.2)
+    mask2 = (scores > 0.0)
 
     if np.sum(mask2) == 0:
         continue

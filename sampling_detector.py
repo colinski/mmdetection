@@ -61,7 +61,7 @@ class SamplingDetector():
         self.min_dets = min_dets
         self.visualise = vis
 
-    def form_final(self, detections, maximal=False, return_clusters=False):
+    def form_final(self, detections, maximal=False, minimal=False, return_clusters=False):
         #detections are in format of [logits, bbox]
 
         #cluster detections from each forward pass 
@@ -76,7 +76,7 @@ class SamplingDetector():
         #form observations from cluster
         observations = self.form_observations(detections, det_set)
 
-        final_detections = self.form_final_detections(observations, maximal=maximal)
+        final_detections = self.form_final_detections(observations, maximal=maximal, minimal=minimal)
 
         if return_clusters:
             return final_detections, [observation.tolist() for observation in observations]
@@ -120,7 +120,7 @@ class SamplingDetector():
             label_matrix = np.asarray(self.label_association(distributions, distributions, self.label))
            
             #detections have same winning label #TODO: Change the addition below to multiplication later
-            matrix = (label_matrix) + spatial_matrix
+            matrix = (label_matrix) * spatial_matrix
 
         for i in range(len(detections)):
             #which other sets meet the threshold minimum?
@@ -214,12 +214,14 @@ class SamplingDetector():
 
         return observations
 
-    def form_final_detections(self, observations, maximal=False):
+    def form_final_detections(self, observations, maximal=False, minimal=False):
         detections = []
         for ob_individ in observations:
             distribution = np.mean(ob_individ[:, :-4], axis = 0)
-            if maximal:
+            if maximal and not minimal:
                 bbox = np.concatenate([np.min(ob_individ[:, -4:-2], axis=0), np.max(ob_individ[:, -2:], axis=0)])
+            if minimal and not maximal:
+                bbox = np.concatenate([np.max(ob_individ[:, -4:-2], axis=0), np.min(ob_individ[:, -2:], axis=0)])
             else:
                 bbox = np.mean(ob_individ[:, -4:], axis = 0)
 

@@ -86,6 +86,8 @@ fnames = [o['ori_filename'] for o in model_output]
 
 all_probs, all_labels = [], []
 all_bbox_preds, all_bbox_targets = [], []
+all_bbox_clusters = []
+all_bbox_h_w = []
 count_unmatched = 0
 count_no_preds = 0
 total_gt_bboxes = 0
@@ -93,15 +95,17 @@ unmatched_gt_boxes = []
 
 IOU_THRESHOLD = 0.5
 
-EMPIRICAL_VAR_X = 0.0002 #this is for ensemble
-EMPIRICAL_VAR_Y = 0.0003 #this is for ensemble
-
+EMPIRICAL_VAR_X = 0.0001555555556 #this is for full ensemble
+# EMPIRICAL_VAR_X = 0.0002 #this is for ensemble
+EMPIRICAL_VAR_Y = 0.0002 #this is for ensemble
+counter = 0.
 
 for sample in model_output:
     fname = sample['ori_filename']
     H, W, _ = sample['ori_shape']
     gt_bboxes = torch.from_numpy(sample['gt_bboxes'])
     gt_labels = torch.from_numpy(sample['gt_labels']).long()    
+    sample_bbox_clusters = []
     
     
     total_gt_bboxes += len(gt_labels)
@@ -129,8 +133,9 @@ for sample in model_output:
     
     bbox_preds = preds[:, -5:-1]
     bbox_preds = bbox_preds[mask]
-    clusters = np.array(clusters)[mask.numpy()].tolist()
-    
+    # clusters = np.array(clusters)[mask.numpy()].tolist()
+    clusters = np.array(clusters)[mask.numpy()]
+
     if len(bbox_preds) == 0:
         count_no_preds += 1
         all_labels.append(gt_labels)
@@ -154,6 +159,7 @@ for sample in model_output:
     pred_bboxes_centres_var[:, 0], pred_bboxes_centres_var[:, 1] = pred_bboxes_centres_var[:, 0] * EMPIRICAL_VAR_X, pred_bboxes_centres_var[:, 1] * EMPIRICAL_VAR_Y 
     pred_bboxes_centres_mean[:, 0], pred_bboxes_centres_mean[:, 1] = pred_bboxes_centres_mean[:, 0]/W, pred_bboxes_centres_mean[:, 1]/H
     pred_bboxes_centres_std = torch.sqrt(pred_bboxes_centres_var)
+
 
     #set iou to 0 for all boxes predicted as background (optional?)
     #bg_mask = probs[:, -1] >= 0.5 
@@ -188,6 +194,18 @@ for sample in model_output:
         all_labels.append(matched_label_targets)
         matched_bbox_centre_targets = torch.zeros(len(matches), 2)
         matched_bbox_centre_targets = gt_bboxes_centres[matches[:, 1]]
+        all_bbox_h_w.append(torch.ones(len(matched_bbox_centre_targets), 4) * torch.tensor([W, H, W, H]))
+        counter += len(matches)
+
+        # if counter >= 49:
+        #     import pdb
+        #     pdb.set_trace()
+
+        if type(clusters[matches[:, 0]]) !=list and (len(clusters[matches[:, 0]].shape) == 1 or len(clusters[matches[:, 0]].shape) == 3):
+            all_bbox_clusters += clusters[matches[:, 0]].tolist()
+        else:
+            all_bbox_clusters += np.array([clusters[matches[:, 0]]], dtype='object').tolist()
+
         all_bbox_preds.append(torch.cat([pred_bboxes_centres_mean, pred_bboxes_centres_std], dim=1)[matches[:, 0]])
         all_bbox_targets.append(matched_bbox_centre_targets)
         unmatched_gt_indxs = np.setdiff1d(np.arange(len(gt_bboxes)), matches[:, 1])
@@ -212,11 +230,23 @@ for sample in model_output:
     #save all probs and assigned labels
     all_probs.append(probs)
     all_labels.append(label_targets)
+
     
     pred_order, _ = torch.sort(matches[:, 0])
-    # import pdb
-    # pdb.set_trace()
     all_bbox_targets.append(matched_bbox_centre_targets[pred_order])
+    all_bbox_h_w.append(torch.ones(len(matched_bbox_centre_targets[pred_order]), 4) * torch.tensor([W, H, W, H]))
+    counter += len(gt_bboxes)
+    # if counter >= 49:
+    #     import pdb
+    #     pdb.set_trace()
+    if type(clusters[pred_order]) != list and (len(clusters[pred_order].shape) == 1 or len(clusters[pred_order].shape) == 3):
+        all_bbox_clusters += clusters[pred_order].tolist()
+    else:
+        # import pdb
+        # pdb.set_trace()
+        all_bbox_clusters += np.array([clusters[pred_order]], dtype='object').tolist()
+    # all_bbox_clusters += clusters[pred_order]
+    # all_bbox_clusters.append(sample_bbox_clusters)
     all_bbox_preds.append(torch.cat([pred_bboxes_centres_mean, pred_bboxes_centres_std], dim=1)[pred_order])
 
     
@@ -224,6 +254,7 @@ all_probs = torch.cat(all_probs)
 all_labels = torch.cat(all_labels)
 all_bbox_targets = torch.cat(all_bbox_targets)
 all_bbox_preds = torch.cat(all_bbox_preds)
+all_bbox_h_w = torch.cat(all_bbox_h_w)
 
 def get_nll(probs, labels):
     nll_vals = []
@@ -239,20 +270,42 @@ def get_acc(probs, labels):
     acc = (max_idx == labels).float().mean()
     return acc.item()
 
-def get_centre_log_loss(bbox_preds, bbox_targets):
+# def get_centre_log_loss(bbox_preds, bbox_targets):
+#     nll_vals = []
+#     for i in range(len(bbox_targets)):
+#         bbox_target = bbox_targets[i]
+#         bbox_means = bbox_preds[i, :2]
+#         bbox_std = bbox_preds[i, 2:]
+#         d = Normal(loc=bbox_means, scale=bbox_std)
+#         nll_vals.append(-d.log_prob(bbox_target).sum())
+#     nll_vals = torch.tensor(nll_vals)
+#     return nll_vals.mean().item()
+
+def get_centre_log_loss(clusters, bbox_targets, bbox_h_w):
     nll_vals = []
     for i in range(len(bbox_targets)):
+        cluster = clusters[i]
+        pred_bboxes_centres = bbox_xyxy_to_cxcywh(torch.tensor(cluster)[:, -4:]).div(bbox_h_w[i])[:, :2]
+        pred_bboxes_centres_var = torch.ones(len(pred_bboxes_centres), 2)
+        pred_bboxes_centres_var[:, 0], pred_bboxes_centres_var[:, 1] = pred_bboxes_centres_var[:, 0] * EMPIRICAL_VAR_X, pred_bboxes_centres_var[:, 1] * EMPIRICAL_VAR_Y 
+        pred_bboxes_centres_std = torch.sqrt(pred_bboxes_centres_var)
         bbox_target = bbox_targets[i]
-        bbox_means = bbox_preds[i, :2]
-        bbox_std = bbox_preds[i, 2:]
-        d = Normal(loc=bbox_means, scale=bbox_std)
-        nll_vals.append(-d.log_prob(bbox_target).sum())
+        per_member_proba = []
+        for j in range(len(pred_bboxes_centres)):
+            d = Normal(loc=pred_bboxes_centres[j], scale=pred_bboxes_centres_std[j])
+            # per_member_proba.append(d.log_prob(bbox_target).sum().exp())
+            per_member_proba.append(d.log_prob(bbox_target).sum() + torch.log(torch.tensor(1/len(pred_bboxes_centres)))) #Log probs with equal weight to all members of the cluster
+        # import pdb
+        # pdb.set_trace()
+        # nll_vals.append(-torch.log(torch.tensor(per_member_proba).mean()))
+        nll_vals.append(-torch.logsumexp(torch.tensor(per_member_proba), 0)) #Logsumexp is more stable for computing NLL
+    nll_vals = torch.tensor(nll_vals)
+    inf_idxs = torch.isinf(nll_vals)
     # import pdb
     # pdb.set_trace()
-    nll_vals = torch.tensor(nll_vals)
     return nll_vals.mean().item()
 
-bbox_centre_nll = get_centre_log_loss(all_bbox_preds, all_bbox_targets)
+bbox_centre_nll = get_centre_log_loss(all_bbox_clusters, all_bbox_targets, all_bbox_h_w)
 
 results_row = [args.score_threshold, bbox_centre_nll]
 

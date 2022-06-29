@@ -32,6 +32,7 @@ parser.add_argument('--score_threshold', help="Score threshold used in merging."
                     type=float, default=0.0)
 parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
                     type=float, default=0.5)
+parser.add_argument('--result_identifiers', type=str, help='Additional identifiers for CSV', default=None)
 
 args = parser.parse_args()
 
@@ -108,6 +109,7 @@ fnames = [o['ori_filename'] for o in model_output]
 
 
 all_ious, all_coverage, all_sharpness = [], [], []
+matched_ious, matched_coverage, matched_sharpness = [], [], []
 count_unmatched = 0
 count_no_preds = 0
 total_gt_bboxes = 0
@@ -181,6 +183,9 @@ for sample in model_output:
         all_ious.append(iou_array)
         all_coverage.append(coverage_array)
         all_sharpness.append(sharpness_array)
+        matched_ious.append(iou_array)
+        matched_coverage.append(coverage_array)
+        matched_sharpness.append(sharpness_array)
         unmatched_gt_indxs = np.setdiff1d(np.arange(len(gt_bboxes)), matches[:, 1])
         
         if len(unmatched_gt_indxs) != 0:
@@ -201,9 +206,13 @@ for sample in model_output:
 
 
     iou_array, coverage_array, sharpness_array = get_iou_coverage_sharpness(old_bboxes=gt_bboxes[matches[:, 1]], new_bboxes=bbox_preds[matches[:, 0]])
+    
     all_ious.append(iou_array)
     all_coverage.append(coverage_array)
     all_sharpness.append(sharpness_array)
+    matched_ious.append(iou_array)
+    matched_coverage.append(coverage_array)
+    matched_sharpness.append(sharpness_array)
 
     if len(bbox_preds) - len(matches) > 0: 
         all_ious.append(np.zeros(len(bbox_preds) - len(matches)))
@@ -215,7 +224,12 @@ all_ious = np.concatenate(all_ious)
 all_coverage = np.concatenate(all_coverage)
 all_sharpness = np.concatenate(all_sharpness)
 
-results_row = [args.score_threshold, all_ious.mean(), all_coverage.mean(), all_sharpness.mean()]
+matched_ious = np.concatenate(matched_ious)
+matched_coverage = np.concatenate(matched_coverage)
+matched_sharpness = np.concatenate(matched_sharpness)
+
+
+results_row = [args.score_threshold, args.iou_threshold, all_ious.mean(), all_coverage.mean(), all_sharpness.mean(), matched_ious.mean(), matched_coverage.mean(), matched_sharpness.mean()] + args.result_identifiers.split(',')
 
 print("Results:", results_row)
 

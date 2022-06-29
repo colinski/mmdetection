@@ -24,11 +24,13 @@ parser.add_argument("--gt_pkl_filename", help="Pickle file containing ground tru
 parser.add_argument('--merged_outputs_filename', help="JSON file for the merged outputs.",
                     type=str)
 parser.add_argument('--result_output_filename', help="Output CSV filename", 
-                    type=str)
+                    type=str, default=None)
 parser.add_argument('--score_threshold', help="Score threshold used in merging.", 
                     type=float)
 parser.add_argument('--iou_threshold', help='Minimum IoU threshold for matching', 
                     type=float, default=0.5)
+parser.add_argument('--result_identifiers', type=str, help='Additional identifiers for CSV', default=None)
+
 
 args = parser.parse_args()
 
@@ -73,10 +75,10 @@ def linear_assignment(cost_matrix):
     matches = torch.from_numpy(matches).long()
     return matches
 
-with open('logs/merged_outputs_07.json') as f:
+with open(args.merged_outputs_filename) as f:
     merged_outputs = json.load(f)
     
-with open('logs/output_model_1.pkl', 'rb') as f:
+with open(args.gt_pkl_filename, 'rb') as f:
     model_output = pickle.load(f)
     
 
@@ -88,6 +90,7 @@ count_unmatched = 0
 count_no_preds = 0
 total_gt_bboxes = 0
 unmatched_gt_boxes = []
+matched_probs, matched_labels = [], []
 
 IOU_THRESHOLD = args.iou_threshold
 
@@ -162,6 +165,8 @@ for sample in model_output:
         matched_label_targets = gt_labels[matches[:, 1]]
         all_probs.append(probs[matches[:, 0]])
         all_labels.append(matched_label_targets)
+        matched_probs.append(probs[matches[:, 0]])
+        matched_labels.append(matched_label_targets)
         unmatched_gt_indxs = np.setdiff1d(np.arange(len(gt_bboxes)), matches[:, 1])
         if len(unmatched_gt_indxs) != 0:
             all_labels.append(gt_labels[unmatched_gt_indxs])
@@ -185,6 +190,8 @@ for sample in model_output:
     
 all_probs = torch.cat(all_probs)
 all_labels = torch.cat(all_labels)
+matched_probs = torch.cat(matched_probs)
+matched_labels = torch.cat(matched_labels)
 print(all_probs.shape, all_labels.shape)
 
 def get_nll(probs, labels):
@@ -205,7 +212,17 @@ ece = _get_ece(all_probs.numpy(), all_labels.numpy())
 nll = get_nll(all_probs, all_labels)
 acc = get_acc(all_probs, all_labels)
 
-results_row = [args.score_threshold, ece, nll, acc, count_unmatched, len(all_labels), len(all_probs)]
+ece_matched = _get_ece(matched_probs.numpy(), matched_labels.numpy())
+nll_matched = get_nll(matched_probs, matched_labels)
+acc_matched = get_acc(matched_probs, matched_labels)
+
+results_row = [args.score_threshold, args.iou_threshold, ece, nll, acc, ece_matched, nll_matched, acc_matched, len(matched_probs), count_unmatched, len(all_labels), len(all_probs)]
+
+if args.result_identifiers is not None:
+    result_identifiers = args.result_identifiers.split(",")
+    results_row = results_row +result_identifiers
+
+print(results_row)
 
 with open(args.result_output_filename, 'a') as csv_file:
     writer = csv.writer(csv_file)

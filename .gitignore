@@ -120,6 +120,9 @@ data
 docs/modelzoo_statistics.md
 mmdet/.mim
 work_dirs/
+*.pdf
+*.jpg
+*.png
 
 # Pytorch
 *.pth

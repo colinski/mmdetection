@@ -20,6 +20,7 @@ import numpy as np
 # import tqdm
 import json
 import sys
+import time
 
 currentdir = os.path.dirname(os.path.realpath(__file__))
 parentdir = os.path.dirname(currentdir)
@@ -35,6 +36,8 @@ def parse_args():
     parser.add_argument('--iou', default = 0.8, type = float, help='bbox iou to merge ensemble detections')
     parser.add_argument('--num_models', default=None, type=int, help='num of models in ensemble')
     parser.add_argument('--maximal', action='store_true', help='generate a maximal bounding box')
+    parser.add_argument('--minimal', action='store_true', help='generate a minimal bounding box')
+    parser.add_argument('--save_dir', default=None, help='Path to load models from')
     args = parser.parse_args()
     return args
 
@@ -44,11 +47,13 @@ print(args)
 num_models = args.num_models
 
 #used to take in collection of individual ensemble results and convert into merged ensemble results
-merger = SamplingDetector(iou = args.iou, min_dets=3)
+merger = SamplingDetector(iou = args.iou, min_dets=6)
 
 allOutputs = [None for i in range(num_models)]
 #load results from each individual model
-save_dir = 'logs/detr_r50_4x16_decoder_and_output'
+# save_dir = 'logs/detr_r50_4x16_decoder_and_output'
+# save_dir = 'logs/detr_r50_8x2_150e_coco'
+save_dir = args.save_dir
 for i in range(1, num_models+1):
     try:
         print("Trying to load from path:" + f'{save_dir}/{args.saveNm}_{i}.json')
@@ -59,7 +64,9 @@ for i in range(1, num_models+1):
         exit()
 
 ensembleResults = {}
+time_array = []
 for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
+    
     ensembleResults[imKey] = []
     #collect all detections for this image
     ensemble_detections = []
@@ -76,9 +83,12 @@ for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
 
     if len(ensemble_detections) == 0:
         continue
-  
+    
+    t0 = time.perf_counter()
     #cluster and merge ensemble detections into final detections (don't pass in final column with softmax score)
-    clustering_output = merger.form_final(ensemble_detections[:, :-1], maximal=args.maximal, return_clusters=True)
+    clustering_output = merger.form_final(ensemble_detections[:, :-1], maximal=args.maximal, minimal=args.minimal, return_clusters=True)
+    t1 = time.perf_counter()
+    time_array.append(t1-t0)
 
     if len(clustering_output) == 0: #no valid detections were clustered
         continue
@@ -98,9 +108,12 @@ for imIdx, imKey in enumerate(tqdm(allOutputs[0].keys())):
 
 #save results
 jsonRes = json.dumps(ensembleResults, indent=4)
+time_array = np.array(time_array)
+print("Median clustering time: ", np.median(time_array))
+print("Mean clustering time: ", np.mean(time_array))
 
 # save_dir = f'{save_dir}/FRCNN/raw/{args.dataset}/{args.subset}'
-iouEns = str(args.iou).replace('.', '')
-f = open(f'{save_dir}/merged_outputs_{iouEns}_maximal.json', 'w')
-f.write(jsonRes)
-f.close()
+# iouEns = str(args.iou).replace('.', '')
+# f = open(f'{save_dir}/merged_outputs_{iouEns}_{args.num_models}_ensemble_maximal.json', 'w')
+# f.write(jsonRes)
+# f.close()

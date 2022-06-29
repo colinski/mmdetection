@@ -20,8 +20,8 @@ pkl_fname = sys.argv[1]
 json_fname = sys.argv[2]
 # bg_iou_threshold = float(sys.argv[3])/10.
 # print(sys.argv[3])
-score_threshold = float(sys.argv[3])
-# score_threshold = 0.0
+# score_threshold = float(sys.argv[3])
+score_threshold = 0.0
 
 with open(pkl_fname, 'rb') as f:
     output = pickle.load(f)

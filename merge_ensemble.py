@@ -113,7 +113,7 @@ print("Median clustering time: ", np.median(time_array))
 print("Mean clustering time: ", np.mean(time_array))
 
 # save_dir = f'{save_dir}/FRCNN/raw/{args.dataset}/{args.subset}'
-# iouEns = str(args.iou).replace('.', '')
-# f = open(f'{save_dir}/merged_outputs_{iouEns}_{args.num_models}_ensemble_maximal.json', 'w')
-# f.write(jsonRes)
-# f.close()
+iouEns = str(args.iou).replace('.', '')
+f = open(f'{save_dir}/merged_outputs_{iouEns}_{args.num_models}_ensemble_maximal.json', 'w')
+f.write(jsonRes)
+f.close()

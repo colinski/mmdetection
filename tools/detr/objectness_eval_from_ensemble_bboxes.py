@@ -97,7 +97,10 @@ for sample in model_output:
     bbox_preds = bbox_preds[mask]
     bbox_preds = bbox_preds.numpy()
     bbox_preds = bbox_preds.clip(min=0)
-    image_ensemble_index_list = image_ensemble_index_list[mask]
+    try:
+        image_ensemble_index_list = image_ensemble_index_list[mask]
+    except:
+        image_ensemble_index_list = image_ensemble_index_list[mask.numpy()]
     probs = probs.numpy()
     
     final_pred_map = []
@@ -123,8 +126,8 @@ for sample in model_output:
     final_pred_map = np.mean(np.stack(final_pred_map), axis=0)
     final_pred_map = skimage.measure.block_reduce(final_pred_map, max_pool_kernel_shape, np.max)
     # if fname=='000000504711.jpg':
-    import pdb
-    pdb.set_trace()
+    # import pdb
+    # pdb.set_trace()
     all_prediction_maps.append(final_pred_map.reshape(-1, ))
 
 pixel_pred_array = np.hstack(all_prediction_maps)

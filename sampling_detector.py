@@ -220,7 +220,7 @@ class SamplingDetector():
             distribution = np.mean(ob_individ[:, :-4], axis = 0)
             if maximal and not minimal:
                 bbox = np.concatenate([np.min(ob_individ[:, -4:-2], axis=0), np.max(ob_individ[:, -2:], axis=0)])
-            if minimal and not maximal:
+            elif minimal and not maximal:
                 bbox = np.concatenate([np.max(ob_individ[:, -4:-2], axis=0), np.min(ob_individ[:, -2:], axis=0)])
             else:
                 bbox = np.mean(ob_individ[:, -4:], axis = 0)

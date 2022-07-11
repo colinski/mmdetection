@@ -87,8 +87,9 @@ total_gt_bboxes = 0
 unmatched_gt_boxes = []
 
 IOU_THRESHOLD = 0.5
-EMPIRICAL_VAR_X = 0.0001 #this is for base DETR
-EMPIRICAL_VAR_Y = 0.0002 #this is for base DETR
+# EMPIRICAL_VAR_X = 0.0001 #this is for base DETR
+EMPIRICAL_VAR_X = 0.0002 #this is for base AdaMixer
+EMPIRICAL_VAR_Y = 0.0002 #this is for base AdaMixer/DETR
 
 # EMPIRICAL_VAR_X = 0.0002 #this is for ensemble
 # EMPIRICAL_VAR_Y = 0.0003 #this is for ensemble
@@ -232,6 +233,8 @@ def get_centre_log_loss(bbox_preds, bbox_targets):
     # import pdb
     # pdb.set_trace()
     nll_vals = torch.tensor(nll_vals)
+    import pdb
+    pdb.set_trace()
     return nll_vals.mean().item()
 
 bbox_centre_nll = get_centre_log_loss(all_bbox_preds, all_bbox_targets)

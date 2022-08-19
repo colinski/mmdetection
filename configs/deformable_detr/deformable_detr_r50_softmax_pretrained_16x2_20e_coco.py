@@ -1,9 +1,11 @@
 _base_ = [
     '../_base_/datasets/coco_detection.py', '../_base_/default_runtime.py'
 ]
+checkpoint = '/work/csamplawski_umass_edu/checkpoints/deformable_detr_r50_16x2_50e_coco_20210419_220030-a12b9512.pth'
 model = dict(
     type='DETR',
     freeze_backbone=False,
+    init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     backbone=dict(
         type='ResNet',
         depth=50,
@@ -61,24 +63,22 @@ model = dict(
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')))),
+        
         positional_encoding=dict(
-            type='SinePositionalEncoding',
-            num_feats=128,
-            normalize=True,
-            offset=-0.5),
+            type='SinePositionalEncoding', num_feats=128, normalize=True),
         loss_cls=dict(
-            type='FocalLoss',
-            use_sigmoid=True,
-            gamma=2.0,
-            alpha=0.25,
-            loss_weight=2.0),
+            type='CrossEntropyLoss',
+            bg_cls_weight=0.1,
+            use_sigmoid=False,
+            loss_weight=1.0,
+            class_weight=1.0),
         loss_bbox=dict(type='L1Loss', loss_weight=5.0),
         loss_iou=dict(type='GIoULoss', loss_weight=2.0)),
     # training and testing settings
     train_cfg=dict(
         assigner=dict(
             type='HungarianAssigner',
-            cls_cost=dict(type='FocalLossCost', weight=2.0),
+            cls_cost=dict(type='ClassificationCost', weight=1.),
             reg_cost=dict(type='BBoxL1Cost', weight=5.0, box_format='xywh'),
             iou_cost=dict(type='IoUCost', iou_mode='giou', weight=2.0))),
     test_cfg=dict(max_per_img=100))
@@ -159,7 +159,7 @@ data = dict(
 # optimizer
 optimizer = dict(
     type='AdamW',
-    lr=2e-4,
+    lr=1e-4 / 2,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
@@ -169,5 +169,5 @@ optimizer = dict(
         }))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 # learning policy
-lr_config = dict(policy='step', step=[40])
-runner = dict(type='EpochBasedRunner', max_epochs=50)
+lr_config = dict(policy='step', step=[4])
+runner = dict(type='EpochBasedRunner', max_epochs=5)
